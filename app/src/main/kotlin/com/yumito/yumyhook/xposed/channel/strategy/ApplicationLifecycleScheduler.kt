@@ -18,6 +18,7 @@ object ApplicationLifecycleScheduler {
         val needOnCreate = initial.nativeInstallMode == NativeInstallMode.APPLICATION_ON_CREATE ||
             initial.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE ||
             initial.strategy.applyBuildAtPhase == InstallPhase.APPLICATION_ON_CREATE ||
+            initial.strategy.channelStubInstallPhase == InstallPhase.APPLICATION_ON_CREATE ||
             !initial.strategy.hookApplicationAttach
 
         if (needAttach) {

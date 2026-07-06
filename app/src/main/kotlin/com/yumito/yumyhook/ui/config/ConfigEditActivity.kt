@@ -28,7 +28,9 @@ class ConfigEditActivity : AppCompatActivity() {
     private val viewModel: ConfigEditViewModel by viewModels()
     private lateinit var binding: ActivityConfigEditBinding
     private val buildInputs = linkedMapOf<String, TextInputEditText>()
-    private val idsInputs = linkedMapOf<String, TextInputEditText>()
+    private val simInputs = linkedMapOf<String, TextInputEditText>()
+    private val deviceIdInputs = linkedMapOf<String, TextInputEditText>()
+    private val locationInputs = linkedMapOf<String, TextInputEditText>()
     private var suppressSectionToggle = false
     private var suppressTabSelect = false
     private var suppressDebugToggle = false
@@ -83,6 +85,7 @@ class ConfigEditActivity : AppCompatActivity() {
             section("spoofPartialDeviceId", binding.rowPartialDeviceId),
             section("simSimulation", binding.rowSimSimulation),
             section("spoofFullDeviceId", binding.rowFullDeviceId),
+            section("spoofLocation", binding.rowSpoofLocation),
         )
 
         bindSectionLabels()
@@ -102,20 +105,33 @@ class ConfigEditActivity : AppCompatActivity() {
         binding.recyclerFeatures.adapter = featureAdapter
         binding.recyclerExperimental.adapter = experimentalAdapter
         buildBuildFieldInputs()
-        buildIdsFieldInputs()
+        buildSimFieldInputs()
+        buildDeviceIdFieldInputs()
+        buildLocationFieldInputs()
 
         binding.btnAddProfile.setOnClickListener { showAddProfileDialog() }
         binding.btnDeleteProfile.setOnClickListener { deleteActiveProfile() }
         binding.btnSaveDevice.setOnClickListener {
             val fields = collectBuildFields()
-            ConfigDebugLog.logSave(this, "设备参数", fields)
+            ConfigDebugLog.logSave(this, "Build 参数", fields)
             viewModel.saveBuildFields(fields)
         }
         binding.btnSaveSim.setOnClickListener {
-            val fields = collectIdsFields()
+            val fields = collectSimFields()
             ConfigDebugLog.logSave(this, "SIM 参数", fields)
-            viewModel.saveIdsFields(fields)
+            viewModel.saveSimFields(fields)
         }
+        binding.btnSaveDeviceIds.setOnClickListener {
+            val fields = collectDeviceIdFields()
+            ConfigDebugLog.logSave(this, "设备标识", fields)
+            viewModel.saveDeviceIdFields(fields)
+        }
+        binding.btnSaveLocation.setOnClickListener {
+            val fields = collectLocationFields()
+            ConfigDebugLog.logSave(this, "地理位置", fields)
+            viewModel.saveLocationFields(fields)
+        }
+        binding.btnRandomizeLocation.setOnClickListener { viewModel.randomizeLocation() }
         binding.btnRandomizeAll.setOnClickListener { viewModel.randomizeAll() }
 
         viewModel.featureRows.observe(this) { rows -> featureAdapter.submit(rows) }
@@ -133,8 +149,14 @@ class ConfigEditActivity : AppCompatActivity() {
             viewModel.buildFieldKeys.forEach { key ->
                 buildInputs[key]?.setText(profile.values.getBuildField(key).orEmpty())
             }
-            viewModel.idsFieldKeys.forEach { key ->
-                idsInputs[key]?.setText(profile.values.idsFields[key].orEmpty())
+            viewModel.simFieldKeys.forEach { key ->
+                simInputs[key]?.setText(profile.values.idsFields[key].orEmpty())
+            }
+            viewModel.deviceIdFieldKeys.forEach { key ->
+                deviceIdInputs[key]?.setText(profile.values.idsFields[key].orEmpty())
+            }
+            viewModel.locationFieldKeys.forEach { key ->
+                locationInputs[key]?.setText(profile.values.locationFields[key].orEmpty())
             }
         }
 
@@ -264,7 +286,7 @@ class ConfigEditActivity : AppCompatActivity() {
                 ).apply { marginEnd = gap }
                 setOnClickListener {
                     if (suppressTabSelect) return@setOnClickListener
-                    viewModel.selectTab(index, collectBuildFields(), collectIdsFields())
+                    viewModel.selectTab(index, collectBuildFields(), collectAllIdsFields())
                 }
             }
             binding.profileTabsContainer.addView(btn)
@@ -337,8 +359,21 @@ class ConfigEditActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildIdsFieldInputs() {
-        addFieldInputs(binding.containerIdsFields, viewModel.idsFieldKeys, idsInputs)
+    private fun buildSimFieldInputs() {
+        addFieldInputs(binding.containerSimFields, viewModel.simFieldKeys, simInputs)
+    }
+
+    private fun buildDeviceIdFieldInputs() {
+        addFieldInputs(binding.containerDeviceIdFields, viewModel.deviceIdFieldKeys, deviceIdInputs)
+    }
+
+    private fun buildLocationFieldInputs() {
+        addFieldInputs(
+            binding.containerLocationFields,
+            viewModel.locationFieldKeys,
+            locationInputs,
+            viewModel.locationFieldHints,
+        )
     }
 
     private fun buildBuildFieldInputs() {
@@ -349,10 +384,11 @@ class ConfigEditActivity : AppCompatActivity() {
         container: android.widget.LinearLayout,
         keys: List<String>,
         target: MutableMap<String, TextInputEditText>,
+        hints: Map<String, String> = emptyMap(),
     ) {
         keys.forEach { key ->
             val layout = TextInputLayout(this).apply {
-                hint = key
+                hint = hints[key] ?: key
                 layoutParams = android.widget.LinearLayout.LayoutParams(
                     android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -375,6 +411,15 @@ class ConfigEditActivity : AppCompatActivity() {
     private fun collectBuildFields(): Map<String, String> =
         buildInputs.mapValues { (_, edit) -> edit.text?.toString().orEmpty() }
 
-    private fun collectIdsFields(): Map<String, String> =
-        idsInputs.mapValues { (_, edit) -> edit.text?.toString().orEmpty() }
+    private fun collectSimFields(): Map<String, String> =
+        simInputs.mapValues { (_, edit) -> edit.text?.toString().orEmpty() }
+
+    private fun collectDeviceIdFields(): Map<String, String> =
+        deviceIdInputs.mapValues { (_, edit) -> edit.text?.toString().orEmpty() }
+
+    private fun collectLocationFields(): Map<String, String> =
+        locationInputs.mapValues { (_, edit) -> edit.text?.toString().orEmpty() }
+
+    private fun collectAllIdsFields(): Map<String, String> =
+        collectSimFields() + collectDeviceIdFields()
 }

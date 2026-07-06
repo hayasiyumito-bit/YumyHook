@@ -23,6 +23,8 @@ data class HookFeatures(
     val spoofUptime: Boolean = false,
     val spoofAppIdentity: Boolean = false,
     val spoofBrowserFingerprint: Boolean = true,
+    /** 全局地理位置伪装（LocationManager / Location，不按包名分支） */
+    val spoofLocation: Boolean = false,
     /** 四通道属性对齐主开关：Build + getprop + SystemProperties + JNI Native */
     val spoofBuildProperties: Boolean = true,
     val nativePropertyHook: Boolean = true,
@@ -90,6 +92,7 @@ data class HookFeatures(
         "spoofUptime" -> copy(spoofUptime = enabled)
         "spoofAppIdentity" -> copy(spoofAppIdentity = enabled)
         "spoofBrowserFingerprint" -> copy(spoofBrowserFingerprint = enabled)
+        "spoofLocation" -> copy(spoofLocation = enabled)
         "spoofBuildProperties" -> copy(spoofBuildProperties = enabled).normalized()
         "nativePropertyHook" -> copy(nativePropertyHook = enabled).normalized()
         "preventNativeCrash" -> copy(nativePropertyHook = !enabled, spoofBuildProperties = true).normalized()
@@ -114,6 +117,7 @@ data class HookFeatures(
         "spoofUptime" -> spoofUptime
         "spoofAppIdentity" -> spoofAppIdentity
         "spoofBrowserFingerprint" -> spoofBrowserFingerprint
+        "spoofLocation" -> spoofLocation
         "spoofBuildProperties" -> spoofBuildProperties
         "nativePropertyHook" -> nativePropertyHook
         "preventNativeCrash" -> !nativePropertyHook
@@ -145,6 +149,7 @@ data class HookFeatures(
             put(KEY_SPOOF_UPTIME, n.spoofUptime)
             put(KEY_SPOOF_APP_ID, n.spoofAppIdentity)
             put(KEY_SPOOF_BROWSER_FP, n.spoofBrowserFingerprint)
+            put(KEY_SPOOF_LOCATION, n.spoofLocation)
             put(KEY_SPOOF_BUILD_PROPS, n.spoofBuildProperties)
             put(KEY_NATIVE_HOOK, n.nativePropertyHook)
             put(KEY_PREVENT_NATIVE_CRASH, n.preventNativeCrash)
@@ -174,6 +179,7 @@ data class HookFeatures(
         private const val KEY_SPOOF_UPTIME = "spoofUptime"
         private const val KEY_SPOOF_APP_ID = "spoofAppIdentity"
         private const val KEY_SPOOF_BROWSER_FP = "spoofBrowserFingerprint"
+        private const val KEY_SPOOF_LOCATION = "spoofLocation"
         private const val KEY_SPOOF_BUILD_PROPS = "spoofBuildProperties"
         private const val KEY_NATIVE_HOOK = "nativePropertyHook"
         private const val KEY_PREVENT_NATIVE_CRASH = "preventNativeCrash"
@@ -216,6 +222,7 @@ data class HookFeatures(
                 spoofUptime = obj.optBoolean(KEY_SPOOF_UPTIME, DEFAULT.spoofUptime),
                 spoofAppIdentity = obj.optBoolean(KEY_SPOOF_APP_ID, DEFAULT.spoofAppIdentity),
                 spoofBrowserFingerprint = obj.optBoolean(KEY_SPOOF_BROWSER_FP, DEFAULT.spoofBrowserFingerprint),
+                spoofLocation = obj.optBoolean(KEY_SPOOF_LOCATION, DEFAULT.spoofLocation),
                 spoofBuildProperties = spoofBuild,
                 nativePropertyHook = nativeHook,
                 preventNativeCrash = !nativeHook,
@@ -260,6 +267,7 @@ data class HookFeatures(
             "spoofPartialDeviceId",
             "simSimulation",
             "spoofFullDeviceId",
+            "spoofLocation",
         )
 
         fun uiCatalog(): List<HookFeatureItem> = listOf(
@@ -267,9 +275,9 @@ data class HookFeatures(
             HookFeatureItem("hideVpn", "从应用隐藏活动 VPN", "HackChecker.isVPN", "基础保护"),
             HookFeatureItem("spoofInstallSourcePlay", "伪装安装来源为 Google Play", "InstallSourceInfo", "基础保护"),
             HookFeatureItem("spoofWifiInfo", "伪装 Wi-Fi 信息", "WifiManager / DHCP", "基础保护"),
-            HookFeatureItem("spoofPartialDeviceId", "模拟部分设备标识", "Build 静态字段", "基础保护"),
-            HookFeatureItem("spoofFullDeviceId", "模拟全部设备标识", "IDs / Telephony", "高级保护"),
-            HookFeatureItem("simSimulation", "SIM 模拟", "TelephonyManager / SimCard", "高级保护"),
+            HookFeatureItem("spoofPartialDeviceId", "启用 Build 字段伪装", "android.os.Build 静态字段（见下方设备参数）", "基础保护"),
+            HookFeatureItem("spoofFullDeviceId", "启用设备标识伪装", "IMEI / IMSI / 手机号 / Android ID（见下方设备标识）", "高级保护"),
+            HookFeatureItem("simSimulation", "启用 SIM 卡伪装", "运营商 MCC/MNC、名称、国家（见下方 SIM 卡）", "高级保护"),
             HookFeatureItem("hideLsposed", "隐藏 LSPosed", "maps / 特征文件 / 模块列表", "高级保护"),
             HookFeatureItem("hideRoot", "隐藏 Root", "CheckEmu root 探测", "高级保护"),
             HookFeatureItem("hideAirplaneMode", "隐藏飞行模式状态", "Settings.Global", "高级保护"),
@@ -277,6 +285,12 @@ data class HookFeatures(
             HookFeatureItem("hideWifiNetworks", "隐藏 Wi-Fi 网络列表", "getScanResults", "高级保护"),
             HookFeatureItem("hideBluetooth", "隐藏蓝牙设备", "BluetoothAdapter", "高级保护"),
             HookFeatureItem("spoofBrowserFingerprint", "更改浏览器指纹", "WebSettings User-Agent", "其他"),
+            HookFeatureItem(
+                "spoofLocation",
+                "启用地理位置伪装",
+                "LocationManager / GPS 坐标（见下方地理位置）",
+                "其他",
+            ),
             HookFeatureItem(
                 "spoofBuildProperties",
                 "属性伪装（Java 三通道）",

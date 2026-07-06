@@ -16,6 +16,7 @@ object SpoofConfigFile {
     private const val KEY_PROFILE = "profileLabel"
     private const val KEY_BUILD = "buildFields"
     private const val KEY_IDS = "idsFields"
+    private const val KEY_LOCATION = "locationFields"
     private const val KEY_ENABLED = "hookEnabled"
     private const val KEY_UPDATED_AT = "updatedAt"
     const val KEY_FEATURES = "features"
@@ -71,6 +72,7 @@ object SpoofConfigFile {
             put(KEY_PROFILE, stamped.profileLabel)
             put(KEY_BUILD, JSONObject(stamped.buildFields))
             put(KEY_IDS, JSONObject(stamped.idsFields))
+            put(KEY_LOCATION, JSONObject(stamped.locationFields))
             put(KEY_ENABLED, enabled)
             put(KEY_UPDATED_AT, updatedAt)
             put(KEY_FEATURES, features.toJson())
@@ -122,8 +124,9 @@ object SpoofConfigFile {
             val profile = obj.optString(KEY_PROFILE, HookSpoofValues.DEFAULT.profileLabel)
             val build = jsonObjectToMap(obj.optJSONObject(KEY_BUILD))
             val ids = jsonObjectToMap(obj.optJSONObject(KEY_IDS))
+            val location = jsonObjectToMap(obj.optJSONObject(KEY_LOCATION))
             val updatedAt = obj.optLong(KEY_UPDATED_AT, 0L)
-            HookConfig.sanitize(HookSpoofValues(profile, build, ids, updatedAt))
+            HookConfig.sanitize(HookSpoofValues(profile, build, ids, location, updatedAt))
         } catch (e: Exception) {
             Log.w(XposedConstants.TAG, "SpoofConfigFile.read failed: ${e.message}")
             null

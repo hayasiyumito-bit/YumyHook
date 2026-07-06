@@ -18,6 +18,9 @@ object HostShadowhookDetector {
     fun isHostNativeReady(): Boolean =
         isHostPresent() || readMapsLines().any(::isHostCrashLibLine)
 
+    fun isIntegrityLibMapped(): Boolean =
+        readMapsLines().any { it.lowercase().contains("pairipcore") }
+
     private fun readMapsLines(): List<String> =
         runCatching { File("/proc/self/maps").readLines() }.getOrElse { emptyList() }
 
@@ -34,6 +37,7 @@ object HostShadowhookDetector {
         return l.contains("wechatcrash") ||
             l.contains("libbugly") ||
             l.contains("libgaea") ||
-            l.contains("crashsdk")
+            l.contains("crashsdk") ||
+            l.contains("pairipcore")
     }
 }

@@ -17,6 +17,7 @@ data class StoredProfile(
         put("profileLabel", values.profileLabel)
         put("buildFields", JSONObject(values.buildFields))
         put("idsFields", JSONObject(values.idsFields))
+        put("locationFields", JSONObject(values.locationFields))
         put("updatedAt", values.updatedAt)
         put("features", features.toJson())
     }
@@ -28,8 +29,9 @@ data class StoredProfile(
             val profileLabel = obj.optString("profileLabel", name)
             val build = jsonToMap(obj.optJSONObject("buildFields"))
             val ids = jsonToMap(obj.optJSONObject("idsFields"))
+            val location = jsonToMap(obj.optJSONObject("locationFields"))
             val updatedAt = obj.optLong("updatedAt", 0L)
-            val values = HookSpoofValues(profileLabel, build, ids, updatedAt)
+            val values = HookSpoofValues(profileLabel, build, ids, location, updatedAt)
             val features = HookFeatures.fromJson(obj.optJSONObject("features")).copy(configName = name)
             return StoredProfile(id, name, values, features)
         }

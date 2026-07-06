@@ -50,6 +50,18 @@ app/src/main/kotlin/com/yumito/yumyhook/
     ├── policy/               # FourChannelGate、HookScope
     ├── runtime/              # SpoofRuntime、TargetContextHolder、重入保护
     └── stealth/              # 反检测 Hook（按 HookFeatures 门控）
+        ├── install/          # FeatureStealthInstaller、延迟安装
+        ├── common/           # StealthConstants
+        ├── hide/             # LSPosed / maps / 敏感路径 / 包隐藏
+        ├── root/             # Root / ADB / 开发者选项 / Shell 探测
+        ├── network/          # VPN / 代理 / 局域网扫描
+        ├── airplane/         # 飞行模式
+        ├── wifi/             # Wi-Fi
+        ├── bluetooth/        # 蓝牙
+        ├── location/         # 地理位置伪装
+        ├── telephony/        # SIM / 设备标识
+        ├── identity/         # 应用身份 / 安装来源
+        └── device/           # 运行时长 / 浏览器指纹
 ```
 
 ### 约定

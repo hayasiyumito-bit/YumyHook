@@ -16,6 +16,10 @@ data class FourChannelStrategy(
     val nativeInstallMode: NativeInstallMode = NativeInstallMode.APPLICATION_ATTACH,
     val skipNativeIfHostShadowhook: Boolean = true,
     val applyBuildAtPhase: InstallPhase = InstallPhase.LOAD_PACKAGE,
+    /** 四通道 Hook 桩（Build/SP/getprop）最早安装阶段；integrity App 需延到 onCreate。 */
+    val channelStubInstallPhase: InstallPhase = InstallPhase.LOAD_PACKAGE,
+    /** LOAD_PACKAGE 零 hook；等 pairipcore 映射后后台装桩（见 IntegrityDelayedInstaller）。 */
+    val deferInstallUntilBindComplete: Boolean = false,
     val stealthInstallPhase: InstallPhase = InstallPhase.LOAD_PACKAGE,
     val registerReceiverCompat: Boolean = false,
     val hookApplicationAttach: Boolean = true,
@@ -36,5 +40,7 @@ data class ResolvedChannelStrategy(
             "b=$buildActive sp=$systemPropertiesActive gp=$getpropActive " +
             "native=$nativeActive mode=$nativeInstallMode " +
             "stealth@${strategy.stealthInstallPhase} build@${strategy.applyBuildAtPhase} " +
+            "stubs@${strategy.channelStubInstallPhase} " +
+            "deferBind=${strategy.deferInstallUntilBindComplete} " +
             "compat=${strategy.registerReceiverCompat} attachHook=${strategy.hookApplicationAttach}"
 }

@@ -3,6 +3,8 @@ package com.yumito.yumyhook.xposed.runtime
 import com.yumito.yumyhook.xposed.channel.NativeBridge
 import com.yumito.yumyhook.xposed.channel.OsBuildPatcher
 import com.yumito.yumyhook.xposed.channel.SystemPropertyMapper
+import com.yumito.yumyhook.xposed.channel.strategy.BuildApplyPhaseGate
+import com.yumito.yumyhook.xposed.channel.strategy.InstallPhase
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
@@ -23,13 +25,13 @@ object SpoofRuntime {
      * ContentProvider 探测常早于 Application.onCreate，不能等 lifecycle。
      */
     fun applyChannelsEarly(reason: String) {
-        applyChannelsAtPhase(reason, fourChannelActive = FourChannelGate.isActive())
+        applyChannelsAtPhase(reason, InstallPhase.LOAD_PACKAGE, FourChannelGate.isActive())
     }
 
-    fun applyChannelsAtPhase(reason: String, fourChannelActive: Boolean) {
-        val features = HookFeatureConfig.current()
+    fun applyChannelsAtPhase(reason: String, phase: InstallPhase, fourChannelActive: Boolean) {
         if (!HookConfig.isEnabledForHook()) return
         if (!fourChannelActive) return
+        if (!BuildApplyPhaseGate.allows(TargetContextHolder.packageName, phase)) return
         val values = HookConfig.valuesForHook()
         if (values.buildFields.isEmpty()) return
 
@@ -40,10 +42,6 @@ object SpoofRuntime {
             "${XposedConstants.TAG}: channels $reason " +
                 "MODEL=${values.getBuildField("MODEL")} props=${SystemPropertyMapper.mapProperty("ro.product.model", values)}",
         )
-    }
-
-    fun applyChannelsAtPhase(reason: String, resolved: com.yumito.yumyhook.xposed.channel.strategy.ResolvedChannelStrategy) {
-        applyChannelsAtPhase(reason, resolved.fourChannelActive)
     }
 
     fun refreshAndApply(context: Context?, reason: String) {

@@ -9,6 +9,7 @@ object XposedConstants {
     const val TARGET_PACKAGE_ALIPAY = "com.eg.android.AlipayGphone"
     const val TARGET_PACKAGE_TIM = "com.tencent.tim"
     const val TARGET_PACKAGE_BILIBILI = "tv.danmaku.bili"
+    const val TARGET_PACKAGE_TWITTER = "com.twitter.android"
     const val TARGET_PACKAGE_XYNER_TOOLS = "cn.xyner.tools"
 
     /** LSPosed 推荐作用域（与 res/values/arrays.xml、META-INF/xposed/scope.list 保持一致） */
@@ -38,5 +39,5 @@ object XposedConstants {
     const val PREF_FEATURES_JSON = "spoof_features_json"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 45
+    const val HOOK_REV = 52
 }

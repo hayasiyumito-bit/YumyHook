@@ -17,6 +17,7 @@ object HookConfig {
     private const val PREF_PROFILE = "spoof_profile_label"
     private const val PREF_BUILD_JSON = "spoof_build_json"
     private const val PREF_IDS_JSON = "spoof_ids_json"
+    private const val PREF_LOCATION_JSON = "spoof_location_json"
 
     @Volatile
     private var cachedEnabled: Boolean = false
@@ -82,9 +83,18 @@ object HookConfig {
         val profile = prefs.getString(PREF_PROFILE, defaults.profileLabel) ?: defaults.profileLabel
         val buildJson = prefs.getString(PREF_BUILD_JSON, null)
         val idsJson = prefs.getString(PREF_IDS_JSON, null)
+        val locationJson = prefs.getString(PREF_LOCATION_JSON, "{}")
         val updatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
         return if (!buildJson.isNullOrBlank() && !idsJson.isNullOrBlank()) {
-            sanitize(HookSpoofValues.fromJson(buildJson, idsJson, profile, updatedAt))
+            sanitize(
+                HookSpoofValues.fromJson(
+                    buildJson,
+                    idsJson,
+                    profile,
+                    updatedAt,
+                    locationJson.orEmpty(),
+                ),
+            )
         } else {
             defaults
         }

@@ -46,10 +46,15 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
     private val _scopeNativeMasterEnabled = MutableLiveData(false)
     val scopeNativeMasterEnabled: LiveData<Boolean> = _scopeNativeMasterEnabled
 
-    val idsFieldKeys: List<String> = listOf(
-        "androidId", "serialNo", "imei", "imsi", "phoneNo",
+    val simFieldKeys: List<String> = listOf(
         "simOperator", "simOperatorName", "simCountryIso",
     )
+
+    val deviceIdFieldKeys: List<String> = listOf(
+        "androidId", "serialNo", "imei", "imsi", "phoneNo",
+    )
+
+    val idsFieldKeys: List<String> = simFieldKeys + deviceIdFieldKeys
 
     val buildFieldKeys: List<String> = listOf(
         "MODEL", "MANUFACTURER", "BRAND", "DEVICE", "PRODUCT", "BOARD", "HARDWARE",
@@ -61,6 +66,19 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         "spoofPartialDeviceId",
         "simSimulation",
         "spoofFullDeviceId",
+        "spoofLocation",
+    )
+
+    val locationFieldKeys: List<String> = listOf(
+        "placeName", "latitude", "longitude", "altitude", "accuracy",
+    )
+
+    val locationFieldHints: Map<String, String> = mapOf(
+        "placeName" to "地名",
+        "latitude" to "纬度",
+        "longitude" to "经度",
+        "altitude" to "海拔(米)",
+        "accuracy" to "精度(米)",
     )
 
     init {
@@ -133,7 +151,33 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
     fun saveIdsFields(fields: Map<String, String>) {
         HookProfilesStore.saveIdsFields(getApplication(), fields)
         applyProfile(HookProfilesStore.load(getApplication()))
+        _saveMessage.value = "标识参数已保存"
+    }
+
+    fun saveSimFields(fields: Map<String, String>) {
+        val merged = HookProfilesStore.load(getApplication()).values.idsFields.toMutableMap()
+        merged.putAll(fields)
+        saveIdsFields(merged)
         _saveMessage.value = "SIM 参数已保存"
+    }
+
+    fun saveDeviceIdFields(fields: Map<String, String>) {
+        val merged = HookProfilesStore.load(getApplication()).values.idsFields.toMutableMap()
+        merged.putAll(fields)
+        saveIdsFields(merged)
+        _saveMessage.value = "设备标识已保存"
+    }
+
+    fun saveLocationFields(fields: Map<String, String>) {
+        HookProfilesStore.saveLocationFields(getApplication(), fields)
+        applyProfile(HookProfilesStore.load(getApplication()))
+        _saveMessage.value = "地理位置已保存"
+    }
+
+    fun randomizeLocation() {
+        HookProfilesStore.randomizeLocation(getApplication())
+        applyProfile(HookProfilesStore.load(getApplication()))
+        _saveMessage.value = "已随机生成地理位置"
     }
 
     fun randomizeAll() {

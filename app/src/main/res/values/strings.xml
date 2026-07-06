@@ -30,12 +30,18 @@
     <string name="config_name_hint">配置名称</string>
     <string name="privacy_settings_title">隐私设置</string>
     <string name="randomize_all">随机全部</string>
-    <string name="build_fields_title">设备参数</string>
+    <string name="build_fields_title">设备 Build 参数</string>
+    <string name="sim_fields_title">SIM 卡</string>
+    <string name="device_ids_fields_title">设备标识</string>
     <string name="ids_fields_title">SIM / 标识参数</string>
     <string name="native_hook_section_title">Native 属性 Hook</string>
     <string name="save_config">保存</string>
-    <string name="save_device_params">保存设备参数</string>
+    <string name="save_device_params">保存 Build 参数</string>
     <string name="save_sim_params">保存 SIM 参数</string>
+    <string name="save_device_ids_params">保存设备标识</string>
+    <string name="location_fields_title">地理位置</string>
+    <string name="save_location_params">保存位置</string>
+    <string name="randomize_location">随机位置</string>
     <string name="add_profile">添加配置</string>
     <string name="delete_profile">删除配置</string>
     <string name="cannot_delete_last_profile">至少保留一个配置</string>
@@ -52,4 +58,9 @@
     <string name="scope_native_channel_switch">Native 四通道</string>
     <string name="open_config_editor">编辑 Hook 配置</string>
     <string name="config_editor_hint">开关对应反检测项；Build 字段与参考 App 一致</string>
+
+    <string name="incompatible_apps_title">已知兼容性极差 App</string>
+    <string name="incompatible_apps_hint">以下 App 自带强完整性校验（如 Google Play Integrity / 原生反 Hook），与 LSPosed 模块同进程时极易启动即崩溃。请勿在 LSPosed 作用域中勾选它们；本模块也无法对其实施有效伪装。</string>
+    <string name="incompatible_app_twitter">X（Twitter） · com.twitter.android</string>
+    <string name="incompatible_app_twitter_detail">内置 libpairipcore 完整性库，勾选作用域后常见 SIGSEGV 闪退。请从 LSPosed 作用域移除 Twitter，改用其他 App 验证伪装效果。</string>
 </resources>

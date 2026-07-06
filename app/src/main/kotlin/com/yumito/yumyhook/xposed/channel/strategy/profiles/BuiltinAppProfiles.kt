@@ -24,6 +24,16 @@ object BuiltinAppProfiles {
         skipNativeIfHostShadowhook = true,
     )
 
+    /** 宿主 libpairipcore 等：LOAD_PACKAGE 装 SystemProperties 桩会触发 SIGSEGV。 */
+    private fun integrityDeferredProfile(profileId: String): FourChannelStrategy =
+        DEFAULT.copy(
+            profileId = profileId,
+            deferInstallUntilBindComplete = true,
+            channelStubInstallPhase = InstallPhase.APPLICATION_ON_CREATE,
+            applyBuildAtPhase = InstallPhase.APPLICATION_ON_CREATE,
+            nativeInstallMode = NativeInstallMode.APPLICATION_ON_CREATE,
+        )
+
     /** 微信 / QQ 等：等宿主 libwechatcrash 加载后复用 shadowhook 装 property hook。 */
     private fun shadowhookProfile(profileId: String): FourChannelStrategy =
         DEFAULT.copy(
@@ -39,6 +49,7 @@ object BuiltinAppProfiles {
         XposedConstants.TARGET_PACKAGE_QQ to shadowhookProfile("qq"),
         XposedConstants.TARGET_PACKAGE_TIM to shadowhookProfile("tim"),
         XposedConstants.TARGET_PACKAGE_ALIPAY to shadowhookProfile("alipay"),
+        XposedConstants.TARGET_PACKAGE_TWITTER to integrityDeferredProfile("twitter"),
         XposedConstants.TARGET_PACKAGE_DEVICE to DEFAULT.copy(
             profileId = "deviceinfo",
             applyBuildAtPhase = InstallPhase.LOAD_PACKAGE,

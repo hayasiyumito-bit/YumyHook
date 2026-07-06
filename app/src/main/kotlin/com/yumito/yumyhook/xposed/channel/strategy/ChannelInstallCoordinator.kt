@@ -10,8 +10,8 @@ import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
-import com.yumito.yumyhook.xposed.stealth.FeatureStealthInstaller
-import com.yumito.yumyhook.xposed.stealth.RegisterReceiverCompatHook
+import com.yumito.yumyhook.xposed.stealth.install.FeatureStealthInstaller
+import com.yumito.yumyhook.xposed.stealth.install.RegisterReceiverCompatHook
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 /**
@@ -19,6 +19,9 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
  * handleLoadPackage 只装桩；是否生效仍由 Gate 运行时判定。
  */
 object ChannelInstallCoordinator {
+
+    @Volatile
+    private var channelStubsInstalled = false
 
     @Volatile
     private var stealthInstalled = false
@@ -29,22 +32,23 @@ object ChannelInstallCoordinator {
     fun onLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam, resolved: ResolvedChannelStrategy) {
         val pkg = lpparam.packageName
         TargetContextHolder.packageName = pkg
+        if (resolved.strategy.deferInstallUntilBindComplete) {
+            IntegrityDelayedInstaller.schedule(lpparam)
+            return
+        }
         val dataDir = lpparam.appInfo.dataDir.orEmpty()
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED && dataDir.isNotBlank()) {
             HostShadowhookLoadGuard.bind(pkg, dataDir, lpparam.classLoader)
             HostShadowhookLoadGuard.schedulePostBindInstall()
             ChannelDiagLog.native(pkg, "deferred until host shadowhook lib")
         }
-        if (resolved.strategy.registerReceiverCompat &&
-            resolved.nativeInstallMode != NativeInstallMode.LOAD_PACKAGE &&
-            resolved.nativeInstallMode != NativeInstallMode.HOST_SHADOWHOOK_DEFERRED
-        ) {
+        if (shouldInstallCompatAt(resolved, InstallPhase.LOAD_PACKAGE)) {
             RegisterReceiverCompatHook.installIfNeeded()
             ChannelDiagLog.phase(pkg, InstallPhase.LOAD_PACKAGE, "registerReceiver compat")
         }
-        installChannelStubs(lpparam)
+        ensureChannelStubs(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
         if (resolved.applyBuildAtPhase(InstallPhase.LOAD_PACKAGE)) {
-            SpoofRuntime.applyChannelsAtPhase("loadPackage", resolved)
+            SpoofRuntime.applyChannelsAtPhase("loadPackage", InstallPhase.LOAD_PACKAGE, resolved.fourChannelActive)
         }
         if (resolved.strategy.stealthInstallPhase == InstallPhase.LOAD_PACKAGE) {
             installStealth(lpparam, pkg, InstallPhase.LOAD_PACKAGE)
@@ -62,8 +66,9 @@ object ChannelInstallCoordinator {
     ) {
         val pkg = lpparam.packageName
         TargetContextHolder.bind(app)
+        ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
         if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ATTACH)) {
-            SpoofRuntime.applyChannelsAtPhase("attach", resolved)
+            SpoofRuntime.applyChannelsAtPhase("attach", InstallPhase.APPLICATION_ATTACH, resolved.fourChannelActive)
         }
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ATTACH) {
             installStealth(lpparam, pkg, InstallPhase.APPLICATION_ATTACH)
@@ -73,19 +78,37 @@ object ChannelInstallCoordinator {
         }
     }
 
+    fun onDeferredWithoutApplication(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        resolved: ResolvedChannelStrategy,
+    ) {
+        ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
+        if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ON_CREATE)) {
+            SpoofRuntime.applyChannelsAtPhase(
+                "integrityDelayed",
+                InstallPhase.APPLICATION_ON_CREATE,
+                resolved.fourChannelActive,
+            )
+        }
+        if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
+            installStealth(lpparam, lpparam.packageName, InstallPhase.APPLICATION_ON_CREATE)
+        }
+    }
+
     fun onApplicationCreate(
         lpparam: XC_LoadPackage.LoadPackageParam,
         app: Application,
         resolved: ResolvedChannelStrategy,
     ) {
         val pkg = lpparam.packageName
+        ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
         if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ON_CREATE)) {
-            SpoofRuntime.applyChannelsAtPhase("onCreate", resolved)
+            SpoofRuntime.applyChannelsAtPhase("onCreate", InstallPhase.APPLICATION_ON_CREATE, resolved.fourChannelActive)
         }
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
             installStealth(lpparam, pkg, InstallPhase.APPLICATION_ON_CREATE)
         }
-        if (resolved.strategy.registerReceiverCompat) {
+        if (shouldInstallCompatAt(resolved, InstallPhase.APPLICATION_ON_CREATE)) {
             RegisterReceiverCompatHook.installIfNeeded()
             ChannelDiagLog.phase(pkg, InstallPhase.APPLICATION_ON_CREATE, "registerReceiver compat")
         }
@@ -94,6 +117,32 @@ object ChannelInstallCoordinator {
         }
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
             ensureNativeDeferred(pkg, resolved)
+        }
+    }
+
+    private fun shouldInstallCompatAt(resolved: ResolvedChannelStrategy, phase: InstallPhase): Boolean {
+        if (!resolved.strategy.registerReceiverCompat) return false
+        if (resolved.strategy.channelStubInstallPhase == phase) return true
+        if (resolved.strategy.stealthInstallPhase == phase &&
+            resolved.strategy.channelStubInstallPhase != InstallPhase.LOAD_PACKAGE
+        ) {
+            return true
+        }
+        return false
+    }
+
+    private fun ensureChannelStubs(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        resolved: ResolvedChannelStrategy,
+        phase: InstallPhase,
+    ) {
+        if (channelStubsInstalled) return
+        if (resolved.strategy.channelStubInstallPhase != phase) return
+        synchronized(this) {
+            if (channelStubsInstalled) return
+            installChannelStubs(lpparam)
+            channelStubsInstalled = true
+            ChannelDiagLog.phase(lpparam.packageName, phase, "channel stubs installed")
         }
     }
 

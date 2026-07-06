@@ -69,7 +69,12 @@ object HookProfilesStore {
         if (!HookFeatures.isImplemented(key)) return false
         val profile = activeProfile(context)
         val features = profile.features.withToggle(key, enabled).normalized()
-        updateActiveProfile(context, profile.copy(features = features), restartAllScoped = true)
+        val values = if (key == "spoofLocation" && enabled) {
+            ensureLocationDefaults(profile.values)
+        } else {
+            profile.values
+        }
+        updateActiveProfile(context, profile.copy(features = features, values = values), restartAllScoped = true)
         return true
     }
 
@@ -84,6 +89,26 @@ object HookProfilesStore {
             profile.copy(values = profile.values.copy(buildFields = build)),
             restartAllScoped = true,
         )
+    }
+
+    fun saveLocationFields(context: Context, fields: Map<String, String>) {
+        val profile = activeProfile(context)
+        val location = profile.values.locationFields.toMutableMap()
+        fields.forEach { (k, v) ->
+            if (v.isBlank()) location.remove(k) else location[k] = v
+        }
+        val merged = com.yumito.yumyhook.xposed.channel.LocationSpoofGenerator.fieldsOrDefault(location)
+        updateActiveProfile(
+            context,
+            profile.copy(values = profile.values.copy(locationFields = merged)),
+            restartAllScoped = true,
+        )
+    }
+
+    fun randomizeLocation(context: Context): Map<String, String> {
+        val fields = com.yumito.yumyhook.xposed.channel.LocationSpoofGenerator.randomize()
+        saveLocationFields(context, fields)
+        return fields
     }
 
     fun saveIdsFields(context: Context, fields: Map<String, String>) {
@@ -129,7 +154,15 @@ object HookProfilesStore {
     fun loadHookProfile(context: Context): HookProfile {
         val doc = loadDocument(context)
         val active = doc.activeProfile() ?: return HookProfile(HookSpoofValues.DEFAULT, HookFeatures.DEFAULT)
-        return HookProfile(active.values, active.features, doc.hookEnabled)
+        var values = active.values
+        if (active.features.spoofLocation) {
+            val ensured = ensureLocationDefaults(values)
+            if (ensured != values) {
+                values = ensured
+                updateActiveProfile(context, active.copy(values = values))
+            }
+        }
+        return HookProfile(values, active.features, doc.hookEnabled)
     }
 
     fun updateActiveProfile(
@@ -200,6 +233,7 @@ object HookProfilesStore {
             .putString("spoof_profile_label", stamped.profileLabel)
             .putString("spoof_build_json", HookConfig.mapToJson(stamped.buildFields))
             .putString("spoof_ids_json", HookConfig.mapToJson(stamped.idsFields))
+            .putString("spoof_location_json", HookConfig.mapToJson(stamped.locationFields))
             .putBoolean(XposedConstants.PREF_KEY_ENABLED, document.hookEnabled)
             .putLong(XposedConstants.PREF_UPDATED_AT, stamped.updatedAt)
             .putString(XposedConstants.PREF_FEATURES_JSON, active.features.toJson().toString())
@@ -232,6 +266,14 @@ object HookProfilesStore {
             saveDocument(context, ProfilesDocument(id, hookEnabled, listOf(profile)))
         } catch (_: Exception) {
         }
+    }
+
+    private fun ensureLocationDefaults(values: HookSpoofValues): HookSpoofValues {
+        val loc = values.locationFields
+        if (!loc["latitude"].isNullOrBlank() && !loc["longitude"].isNullOrBlank()) return values
+        return values.copy(
+            locationFields = com.yumito.yumyhook.xposed.channel.LocationSpoofGenerator.defaultFields(),
+        )
     }
 
     /** Hook 已开时 Root 强停目标 App，使开关/参数变更立即生效。 */
