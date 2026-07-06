@@ -11,7 +11,7 @@
 - **四通道属性对齐**：Build 静态字段、Java `SystemProperties`、`getprop`、Native `__system_property_get`
 - **多配置档案**：支持多 Tab 配置、分区保存 Build / SIM 参数
 - **反检测**：隐藏 Root / LSPosed、过滤 `/proc/maps`、屏蔽 shell 探测等（部分为实验项）
-- **稳定性**：QQ / TIM 等自带 shadowhook 的 App 自动跳过 Native Hook，避免崩溃
+- **稳定性**：配置变更后（开关 / 按 App 四通道 / 参数）有 Root 时自动强停作用域内 App；可按作用域 App 单独关闭四通道
 
 ## 环境要求
 

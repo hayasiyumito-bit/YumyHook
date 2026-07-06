@@ -18,7 +18,7 @@ YumyHook 的伪装与四通道 Hook **必须对 LSPosed 作用域内任意 App �
 ## 允许
 
 - **系统层通用 Hook**：`android.os.Build`、`android.os.SystemProperties`、`Runtime.exec` / `ProcessBuilder`（getprop）、Native `libc` / `libcutils` 属性 API
-- **作用域门控**：`HookScope.shouldHook`（排除模块自身）、`NativeHookPolicy`（QQ/TIM 等 shadowhook 冲突黑名单）
+- **作用域门控**：`HookScope.shouldHook`、`FourChannelPolicy`（按 App 关闭四通道）、`NativeHookPolicy`（四通道 + 功能开关）
 - **功能开关门控**：`HookFeatureConfig` / `spoofBuildProperties` 等用户配置
 
 ## 参考 App（仅验证）

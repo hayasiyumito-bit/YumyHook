@@ -1,7 +1,7 @@
 package com.yumito.yumyhook
 
 import android.util.Log
-import com.yumito.yumyhook.xposed.XposedConstants
+import com.yumito.yumyhook.xposed.config.XposedConstants
 
 /**
  * 版权与谱系指纹。

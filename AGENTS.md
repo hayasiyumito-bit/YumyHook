@@ -22,7 +22,7 @@
 
 - **语言**：仅 Kotlin，目录 `src/**/kotlin/`（禁止 `java/`）
 - **UI**：DataBinding + ViewModel（禁止 Compose）
-- **Hook**：Xposed API `compileOnly`，入口 `assets/xposed_init`
+- **Hook**：Xposed API `compileOnly`，入口 `assets/xposed_init` → `xposed.entry.XposedEntry`
 - **作用域**：LSPosed 作用域内**所有 App**（见 `.cursor/rules/hook-scope.mdc`）；**禁止**单包特化 Hook
 - **参考验证**：`com.android.device` 仅对照采集方式 / 回归 `debug_output.json`，非 Hook 目标
 - **测试**：仅 `src/test/kotlin/` 单元测试，无 androidTest
@@ -30,15 +30,33 @@
 ## 目录结构
 
 ```
-app/src/main/kotlin/com/yumito/YumyHook/
+app/src/main/kotlin/com/yumito/yumyhook/
 ├── MainActivity.kt
-├── ui/main/
-├── model/
-├── util/
+├── ProjectAttribution.kt
+├── model/                    # 纯数据 + HookFeatures 领域方法
+├── data/
+│   ├── profile/              # HookProfilesStore（唯一配置持久化入口）
+│   ├── publish/              # Hook 侧配置发布（chmod / mirror）
+│   └── lsposed/              # LSPosed 作用域、Root、状态检测
+├── feature/
+│   ├── home/                 # MainViewModel
+│   ├── config/               # ConfigDebugLog
+│   └── session/              # Hook 总开关 + 强停目标 App
+├── ui/                       # Activity / Adapter / 布局绑定
 └── xposed/
-    ├── XposedEntry.kt
-    └── hook/
+    ├── entry/                # XposedEntry
+    ├── config/               # HookConfig、SpoofConfigFile、HookSpoofValues
+    ├── channel/              # 四通道：Build / getprop / SystemProperties / Native
+    ├── policy/               # FourChannelGate、HookScope
+    ├── runtime/              # SpoofRuntime、TargetContextHolder、重入保护
+    └── stealth/              # 反检测 Hook（按 HookFeatures 门控）
 ```
+
+### 约定
+
+- **配置读写**：UI 只调 `HookProfilesStore`（已合并原 `HookPrefs` / `HookProfileStore`）
+- **四通道门控**：运行时 `FourChannelGate`；纯规则 `FourChannelPolicy`
+- **Native JNI**：`xposed.channel.NativeBridge`（改包名须同步 `native_bridge.cpp`）
 
 ## Xposed 参考
 

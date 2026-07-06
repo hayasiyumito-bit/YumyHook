@@ -1,6 +1,6 @@
 package com.yumito.yumyhook.model
 
-import com.yumito.yumyhook.xposed.HookSpoofValues
+import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID

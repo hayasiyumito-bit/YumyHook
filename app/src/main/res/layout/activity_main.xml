@@ -7,7 +7,7 @@
         <import type="android.view.View" />
         <variable
             name="viewModel"
-            type="com.yumito.yumyhook.ui.main.MainViewModel" />
+            type="com.yumito.yumyhook.feature.home.MainViewModel" />
     </data>
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout

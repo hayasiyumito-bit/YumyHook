@@ -21,6 +21,10 @@ static pthread_rwlock_t g_lock = PTHREAD_RWLOCK_INITIALIZER;
 static std::unordered_map<std::string, std::string> g_props;
 static bool g_hook_installed = false;
 static bool g_read_callback_hooked = false;
+static bool g_property_get_hooked = false;
+static bool g_system_property_get_hooked = false;
+static bool g_system_property_read_hooked = false;
+static bool g_libc_only_mode = false;
 static std::atomic<uint32_t> g_get_hits{0};
 static std::atomic<uint32_t> g_get_spoofs{0};
 
@@ -49,7 +53,12 @@ static void write_property_value(char *value, const char *src, size_t src_len) {
     value[copy_len] = '\0';
 }
 
+static std::atomic<bool> g_spoof_active{true};
+
 static bool lookup_spoofed(const char *name, char *value) {
+    if (!g_spoof_active.load(std::memory_order_relaxed)) {
+        return false;
+    }
     if (name == nullptr || value == nullptr) {
         return false;
     }
@@ -151,7 +160,13 @@ static bool hook_sym(const char *lib, const char *sym, void *new_func, void **or
         LOGI("hooked %s %s", lib, label);
         return true;
     }
-    LOGE("hook %s %s failed: %s", lib, label, shadowhook_to_errmsg(shadowhook_get_errno()));
+    int err = shadowhook_get_errno();
+    // 宿主 App 已 hook 同一符号（如微信自带 shadowhook）— 非致命
+    if (err == SHADOWHOOK_ERRNO_HOOK_DUP) {
+        LOGI("skip %s %s: already hooked by host", lib, label);
+        return false;
+    }
+    LOGE("hook %s %s failed: %s", lib, label, shadowhook_to_errmsg(err));
     return false;
 }
 
@@ -170,43 +185,111 @@ static bool install_read_callback_hook() {
     return g_read_callback_hooked;
 }
 
+#include <dlfcn.h>
+#include <fstream>
+
+static bool host_shadowhook_present() {
+    std::ifstream maps("/proc/self/maps");
+    if (!maps.is_open()) {
+        return false;
+    }
+    std::string line;
+    while (std::getline(maps, line)) {
+        if (line.find("libshadowhook.so") == std::string::npos) {
+            continue;
+        }
+        if (line.find("yumyhook_native") != std::string::npos) {
+            continue;
+        }
+        LOGI("skip native: host libshadowhook mapped");
+        return true;
+    }
+    return false;
+}
+
+static bool host_crash_lib_mapped() {
+    std::ifstream maps("/proc/self/maps");
+    if (!maps.is_open()) {
+        return false;
+    }
+    std::string line;
+    while (std::getline(maps, line)) {
+        if (line.find("yumyhook_native") != std::string::npos) {
+            continue;
+        }
+        if (line.find("wechatcrash") != std::string::npos ||
+            line.find("libbugly") != std::string::npos ||
+            line.find("crashsdk") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool host_hook_engine_ready() {
+    if (host_shadowhook_present()) {
+        return true;
+    }
+    if (!host_crash_lib_mapped()) {
+        return false;
+    }
+    if (dlsym(RTLD_DEFAULT, "shadowhook_hook_sym_name") != nullptr) {
+        LOGI("host shadowhook symbols via RTLD_DEFAULT (embedded crash lib)");
+        return true;
+    }
+    return false;
+}
+
 static bool install_property_hook() {
     if (g_hook_installed) {
         install_read_callback_hook();
         return true;
     }
-    int init_rc = shadowhook_init(SHADOWHOOK_MODE_SHARED, false);
-    if (init_rc != 0) {
-        LOGE("shadowhook_init failed: %d (%s)", init_rc, shadowhook_to_errmsg(shadowhook_get_errno()));
+    if (host_hook_engine_ready()) {
+        LOGI("host shadowhook ready, hook via host (skip shadowhook_init)");
+    } else if (!g_libc_only_mode) {
+        int init_rc = shadowhook_init(SHADOWHOOK_MODE_SHARED, false);
+        if (init_rc != 0) {
+            LOGE("shadowhook_init failed: %d (%s)", init_rc, shadowhook_to_errmsg(shadowhook_get_errno()));
+            return false;
+        }
+        LOGI("shadowhook_init ok mode=SHARED");
+    } else {
+        LOGE("libc_only: no host shadowhook engine");
         return false;
     }
-    LOGI("shadowhook_init ok mode=SHARED");
     bool any = false;
     void *orig_get = nullptr;
-    if (hook_sym(
+    if (!g_system_property_get_hooked &&
+        hook_sym(
             "libc.so",
             "__system_property_get",
             reinterpret_cast<void *>(hooked_system_property_get),
             &orig_get,
             "__system_property_get")) {
+        g_system_property_get_hooked = true;
         any = true;
     }
     void *orig_pg = nullptr;
-    if (hook_sym(
+    if (!g_libc_only_mode && !g_property_get_hooked &&
+        hook_sym(
             "libcutils.so",
             "property_get",
             reinterpret_cast<void *>(hooked_property_get),
             &orig_pg,
             "property_get")) {
+        g_property_get_hooked = true;
         any = true;
     }
     void *orig_read = nullptr;
-    if (hook_sym(
+    if (!g_system_property_read_hooked &&
+        hook_sym(
             "libc.so",
             "__system_property_read",
             reinterpret_cast<void *>(hooked_system_property_read),
             &orig_read,
             "__system_property_read")) {
+        g_system_property_read_hooked = true;
         any = true;
     }
     if (install_read_callback_hook()) {
@@ -225,15 +308,22 @@ static bool retry_deferred_hooks() {
     if (!g_hook_installed) {
         return install_property_hook();
     }
-    bool any = g_read_callback_hooked;
-    void *orig_pg = nullptr;
-    if (hook_sym(
-            "libcutils.so",
-            "property_get",
-            reinterpret_cast<void *>(hooked_property_get),
-            &orig_pg,
-            "property_get(deferred)")) {
-        any = true;
+    if (g_libc_only_mode) {
+        return g_read_callback_hooked || g_system_property_get_hooked || g_system_property_read_hooked;
+    }
+    bool any = g_read_callback_hooked || g_property_get_hooked ||
+        g_system_property_get_hooked || g_system_property_read_hooked;
+    if (!g_property_get_hooked) {
+        void *orig_pg = nullptr;
+        if (hook_sym(
+                "libcutils.so",
+                "property_get",
+                reinterpret_cast<void *>(hooked_property_get),
+                &orig_pg,
+                "property_get(deferred)")) {
+            g_property_get_hooked = true;
+            any = true;
+        }
     }
     if (!g_read_callback_hooked) {
         any = install_read_callback_hook() || any;
@@ -242,17 +332,18 @@ static bool retry_deferred_hooks() {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_NativeBridge_nativeInstallPropertyHook(JNIEnv *, jclass) {
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeInstallPropertyHook(JNIEnv *, jclass, jboolean libc_only) {
+    g_libc_only_mode = libc_only == JNI_TRUE;
     return install_property_hook() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_NativeBridge_nativeRetryDeferredHooks(JNIEnv *, jclass) {
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeRetryDeferredHooks(JNIEnv *, jclass) {
     return retry_deferred_hooks() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_yumito_yumyhook_xposed_NativeBridge_nativeProbeProperty(JNIEnv *env, jclass, jstring jname) {
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeProperty(JNIEnv *env, jclass, jstring jname) {
     if (jname == nullptr) {
         return env->NewStringUTF("");
     }
@@ -267,7 +358,7 @@ Java_com_yumito_yumyhook_xposed_NativeBridge_nativeProbeProperty(JNIEnv *env, jc
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_yumito_yumyhook_xposed_NativeBridge_nativeHookStats(JNIEnv *env, jclass) {
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeHookStats(JNIEnv *env, jclass) {
     char buf[128];
     snprintf(
         buf,
@@ -282,19 +373,43 @@ Java_com_yumito_yumyhook_xposed_NativeBridge_nativeHookStats(JNIEnv *env, jclass
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_yumito_yumyhook_xposed_NativeBridge_nativeUpdateProperties(
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeSetSpoofActive(JNIEnv *, jclass, jboolean active) {
+    g_spoof_active.store(active == JNI_TRUE, std::memory_order_relaxed);
+    if (!g_spoof_active.load(std::memory_order_relaxed)) {
+        pthread_rwlock_wrlock(&g_lock);
+        g_props.clear();
+        pthread_rwlock_unlock(&g_lock);
+        LOGI("native spoof deactivated, props cleared");
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeUpdateProperties(
     JNIEnv *env,
     jclass,
     jobjectArray keys,
     jobjectArray values
 ) {
     if (keys == nullptr || values == nullptr) {
+        pthread_rwlock_wrlock(&g_lock);
+        g_props.clear();
+        g_spoof_active.store(false, std::memory_order_relaxed);
+        pthread_rwlock_unlock(&g_lock);
         return;
     }
     jsize count = env->GetArrayLength(keys);
     if (count != env->GetArrayLength(values)) {
         return;
     }
+    if (count == 0) {
+        pthread_rwlock_wrlock(&g_lock);
+        g_props.clear();
+        g_spoof_active.store(false, std::memory_order_relaxed);
+        pthread_rwlock_unlock(&g_lock);
+        LOGI("properties cleared, native spoof off");
+        return;
+    }
+    g_spoof_active.store(true, std::memory_order_relaxed);
 
     std::unordered_map<std::string, std::string> next;
     next.reserve(static_cast<size_t>(count));

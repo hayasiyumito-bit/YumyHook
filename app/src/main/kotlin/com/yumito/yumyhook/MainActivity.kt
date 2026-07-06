@@ -12,7 +12,7 @@ import com.yumito.yumyhook.databinding.ActivityMainBinding
 import com.yumito.yumyhook.ProjectAttribution
 import com.yumito.yumyhook.ui.ImmersiveUi
 import com.yumito.yumyhook.ui.config.ConfigEditActivity
-import com.yumito.yumyhook.ui.main.MainViewModel
+import com.yumito.yumyhook.feature.home.MainViewModel
 
 /** 模块主页：Xposed 状态、Hook 总开关、伪装参数预览。 */
 class MainActivity : AppCompatActivity() {
@@ -34,8 +34,7 @@ class MainActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbar)
 
         viewModel.hookEnabled.observe(this) { enabled ->
-            hookSwitch?.let { switch ->
-                suppressHookToggle = true
+            hookSwitch?.let { switch -> suppressHookToggle = true
                 switch.isChecked = enabled
                 switch.isEnabled = viewModel.hookBusy.value != true
                 suppressHookToggle = false

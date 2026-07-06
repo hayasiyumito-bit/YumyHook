@@ -7,11 +7,12 @@ import androidx.lifecycle.MutableLiveData
 import com.yumito.yumyhook.model.HookFeatureItem
 import com.yumito.yumyhook.model.HookFeatures
 import com.yumito.yumyhook.model.StoredProfile
-import com.yumito.yumyhook.util.HookProfile
-import com.yumito.yumyhook.util.HookProfileStore
-import com.yumito.yumyhook.util.HookProfilesStore
-import com.yumito.yumyhook.util.isEnabled
-import com.yumito.yumyhook.xposed.BuildSpoofGenerator
+import com.yumito.yumyhook.data.profile.HookProfile
+import com.yumito.yumyhook.data.profile.HookProfilesStore
+import com.yumito.yumyhook.data.lsposed.LsposedScopeReader
+import com.yumito.yumyhook.data.lsposed.ScopeLabelResolver
+import com.yumito.yumyhook.xposed.channel.BuildSpoofGenerator
+import com.yumito.yumyhook.xposed.config.XposedConstants
 
 class ConfigEditViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -35,6 +36,15 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _saveMessage = MutableLiveData<String?>()
     val saveMessage: LiveData<String?> = _saveMessage
+
+    private val _scopeChannelRows = MutableLiveData<List<ScopeChannelRow>>(emptyList())
+    val scopeChannelRows: LiveData<List<ScopeChannelRow>> = _scopeChannelRows
+
+    private val _scopeSectionVisible = MutableLiveData(false)
+    val scopeSectionVisible: LiveData<Boolean> = _scopeSectionVisible
+
+    private val _scopeNativeMasterEnabled = MutableLiveData(false)
+    val scopeNativeMasterEnabled: LiveData<Boolean> = _scopeNativeMasterEnabled
 
     val idsFieldKeys: List<String> = listOf(
         "androidId", "serialNo", "imei", "imsi", "phoneNo",
@@ -62,7 +72,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         _tabs.value = doc.profiles
         val index = doc.profiles.indexOfFirst { it.id == doc.activeProfileId }.coerceAtLeast(0)
         _activeTabIndex.value = index
-        applyProfile(HookProfileStore.load(getApplication()))
+        applyProfile(HookProfilesStore.load(getApplication()))
     }
 
     fun selectTab(index: Int, buildDraft: Map<String, String>, idsDraft: Map<String, String>) {
@@ -71,7 +81,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         persistDrafts(buildDraft, idsDraft)
         HookProfilesStore.setActiveProfileId(getApplication(), tabs[index].id)
         _activeTabIndex.value = index
-        applyProfile(HookProfileStore.load(getApplication()))
+        applyProfile(HookProfilesStore.load(getApplication()))
     }
 
     fun addProfile(name: String) {
@@ -79,7 +89,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         reloadTabs()
         val index = _tabs.value?.indexOfFirst { it.id == created.id } ?: 0
         _activeTabIndex.value = index
-        applyProfile(HookProfileStore.load(getApplication()))
+        applyProfile(HookProfilesStore.load(getApplication()))
     }
 
     fun deleteActiveProfile(): Boolean {
@@ -93,28 +103,44 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setFeature(key: String, enabled: Boolean): Boolean {
         if (!HookFeatures.isImplemented(key)) return false
-        HookProfileStore.setFeature(getApplication(), key, enabled)
-        applyProfile(HookProfileStore.load(getApplication()))
+        HookProfilesStore.setFeature(getApplication(), key, enabled)
+        applyProfile(HookProfilesStore.load(getApplication()))
         return true
     }
 
+    fun setScopeFourChannel(packageName: String, enabled: Boolean): Boolean {
+        val ok = HookProfilesStore.setScopedFourChannel(getApplication(), packageName, enabled)
+        if (ok) applyProfile(HookProfilesStore.load(getApplication()))
+        return ok
+    }
+
+    fun setScopeNative(packageName: String, enabled: Boolean): Boolean {
+        val ok = HookProfilesStore.setScopedNative(getApplication(), packageName, enabled)
+        if (ok) applyProfile(HookProfilesStore.load(getApplication()))
+        return ok
+    }
+
+    fun refreshScopeChannels() {
+        refreshScopeChannels(HookProfilesStore.load(getApplication()).features)
+    }
+
     fun saveBuildFields(fields: Map<String, String>) {
-        HookProfileStore.saveBuildFields(getApplication(), fields)
-        applyProfile(HookProfileStore.load(getApplication()))
+        HookProfilesStore.saveBuildFields(getApplication(), fields)
+        applyProfile(HookProfilesStore.load(getApplication()))
         _saveMessage.value = "设备参数已保存"
     }
 
     fun saveIdsFields(fields: Map<String, String>) {
-        HookProfileStore.saveIdsFields(getApplication(), fields)
-        applyProfile(HookProfileStore.load(getApplication()))
+        HookProfilesStore.saveIdsFields(getApplication(), fields)
+        applyProfile(HookProfilesStore.load(getApplication()))
         _saveMessage.value = "SIM 参数已保存"
     }
 
     fun randomizeAll() {
         val result = BuildSpoofGenerator.randomize()
-        val current = HookProfileStore.load(getApplication())
+        val current = HookProfilesStore.load(getApplication())
         val updated = current.copy(values = result.values)
-        HookProfileStore.save(getApplication(), updated)
+        HookProfilesStore.save(getApplication(), updated)
         applyProfile(updated)
         _saveMessage.value = "已随机生成设备参数"
     }
@@ -124,8 +150,8 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun persistDrafts(buildDraft: Map<String, String>, idsDraft: Map<String, String>) {
-        HookProfileStore.saveBuildFields(getApplication(), buildDraft)
-        HookProfileStore.saveIdsFields(getApplication(), idsDraft)
+        HookProfilesStore.saveBuildFields(getApplication(), buildDraft)
+        HookProfilesStore.saveIdsFields(getApplication(), idsDraft)
     }
 
     private fun applyProfile(profile: HookProfile) {
@@ -133,5 +159,28 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         _featureRows.value = HookFeatures.privacyCatalog().map { it to profile.features.isEnabled(it.key) }
         _experimentalRows.value = HookFeatures.experimentalCatalog().map { it to profile.features.isEnabled(it.key) }
         _sectionStates.value = sectionKeys.associateWith { profile.features.isEnabled(it) }
+        _scopeSectionVisible.value = profile.features.spoofBuildProperties
+        _scopeNativeMasterEnabled.value = profile.features.nativePropertyHook
+        refreshScopeChannels(profile.features)
+    }
+
+    private fun refreshScopeChannels(features: HookFeatures) {
+        if (!features.spoofBuildProperties) {
+            _scopeChannelRows.value = emptyList()
+            return
+        }
+        val app = getApplication<Application>()
+        val packages = LsposedScopeReader.readScopedPackages(app)
+            .filter { it != XposedConstants.MODULE_PACKAGE }
+            .distinct()
+            .sorted()
+        _scopeChannelRows.value = packages.map { pkg ->
+            ScopeChannelRow(
+                packageName = pkg,
+                label = ScopeLabelResolver.label(app, pkg),
+                javaChannelEnabled = features.isJavaThreeChannelStoredFor(pkg),
+                nativeChannelEnabled = features.isNativeStoredFor(pkg),
+            )
+        }
     }
 }

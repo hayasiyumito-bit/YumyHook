@@ -3,6 +3,7 @@ package com.yumito.yumyhook.ui.config
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -20,7 +21,7 @@ import com.yumito.yumyhook.R
 import com.yumito.yumyhook.databinding.ActivityConfigEditBinding
 import com.yumito.yumyhook.model.HookFeatures
 import com.yumito.yumyhook.ui.ImmersiveUi
-import com.yumito.yumyhook.util.ConfigDebugLog
+import com.yumito.yumyhook.feature.config.ConfigDebugLog
 
 class ConfigEditActivity : AppCompatActivity() {
 
@@ -37,6 +38,14 @@ class ConfigEditActivity : AppCompatActivity() {
             val ok = viewModel.setFeature(key, enabled)
             if (ok) logFeatureToggle(key, enabled)
             ok
+        },
+        allowToggle = { item ->
+            if (!item.implemented) return@HookFeatureAdapter false
+            if (item.key == "nativePropertyHook") {
+                viewModel.profile.value?.features?.spoofBuildProperties == true
+            } else {
+                true
+            }
         },
     )
 
@@ -140,6 +149,83 @@ class ConfigEditActivity : AppCompatActivity() {
             if (message.isNullOrBlank()) return@observe
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             viewModel.consumeSaveMessage()
+        }
+
+        viewModel.scopeSectionVisible.observe(this) { visible ->
+            val v = if (visible == true) View.VISIBLE else View.GONE
+            binding.textScopeFourChannelTitle.visibility = v
+            binding.textScopeFourChannelHint.visibility = v
+            binding.containerScopeFourChannel.visibility = v
+            if (visible != true) {
+                binding.textScopeFourChannelEmpty.visibility = View.GONE
+            } else {
+                viewModel.refreshScopeChannels()
+            }
+        }
+
+        viewModel.scopeNativeMasterEnabled.observe(this) { enabled ->
+            scopeNativeMasterOn = enabled == true
+            viewModel.scopeChannelRows.value?.let { rows -> renderScopeChannelRows(rows) }
+        }
+
+        viewModel.scopeChannelRows.observe(this) { rows -> renderScopeChannelRows(rows) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshScopeChannels()
+    }
+
+    private var suppressScopeToggle = false
+    private var scopeNativeMasterOn = false
+
+    private fun renderScopeChannelRows(rows: List<ScopeChannelRow>) {
+        binding.containerScopeFourChannel.removeAllViews()
+        if (rows.isEmpty()) {
+            binding.textScopeFourChannelEmpty.visibility =
+                if (binding.textScopeFourChannelTitle.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            return
+        }
+        binding.textScopeFourChannelEmpty.visibility = View.GONE
+        val inflater = LayoutInflater.from(this)
+        rows.forEach { row ->
+            val item = inflater.inflate(R.layout.item_scope_channel, binding.containerScopeFourChannel, false)
+            item.findViewById<android.widget.TextView>(R.id.text_title).text = row.label
+            item.findViewById<android.widget.TextView>(R.id.text_desc).text = row.packageName
+            val javaSwitch = item.findViewById<MaterialSwitch>(R.id.switch_java_channel)
+            val nativeSwitch = item.findViewById<MaterialSwitch>(R.id.switch_native)
+            val nativeRow = item.findViewById<android.view.View>(R.id.row_native)
+            suppressScopeToggle = true
+            javaSwitch.isChecked = row.javaChannelEnabled
+            nativeSwitch.isChecked = row.nativeChannelEnabled
+            nativeRow.visibility = if (scopeNativeMasterOn) View.VISIBLE else View.GONE
+            nativeSwitch.isEnabled = row.javaChannelEnabled && row.nativeSwitchEnabled
+            if (!scopeNativeMasterOn) {
+                nativeRow.visibility = View.GONE
+            } else if (!row.javaChannelEnabled) {
+                nativeSwitch.isEnabled = false
+            }
+            suppressScopeToggle = false
+            javaSwitch.setOnCheckedChangeListener { _, checked ->
+                if (suppressScopeToggle) return@setOnCheckedChangeListener
+                if (!viewModel.setScopeFourChannel(row.packageName, checked)) {
+                    suppressScopeToggle = true
+                    javaSwitch.isChecked = !checked
+                    suppressScopeToggle = false
+                } else {
+                    nativeSwitch.isEnabled = checked && row.nativeSwitchEnabled
+                }
+            }
+            nativeSwitch.setOnCheckedChangeListener { _, checked ->
+                if (suppressScopeToggle) return@setOnCheckedChangeListener
+                if (!row.nativeSwitchEnabled) return@setOnCheckedChangeListener
+                if (!viewModel.setScopeNative(row.packageName, checked)) {
+                    suppressScopeToggle = true
+                    nativeSwitch.isChecked = !checked
+                    suppressScopeToggle = false
+                }
+            }
+            binding.containerScopeFourChannel.addView(item)
         }
     }
 
