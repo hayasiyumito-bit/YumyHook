@@ -51,12 +51,18 @@ object XposedStatusChecker {
         val frameworkActive = frameworkVersion > 0 || lspdPresent || managerInstalled ||
             (cachedFrameworkActive && !useRoot)
 
+        val lsposedActive = lspdPresent || managerInstalled || isLsPosedBridgeLoaded()
+        val lsposedVersionLabel = LsposedConfigReader.resolveFrameworkVersion(context, useRoot)
+            ?: if (lsposedActive) "已加载" else "未检测到"
+
         syncRuntimePrefs(context, hookedInProcess, frameworkVersion, moduleEnabled, frameworkActive, useRoot)
         val scopeHint = buildScopeHint(rootState?.scopedPackages.orEmpty())
 
         return XposedStatus(
             frameworkActive = frameworkActive,
             frameworkVersion = frameworkVersion,
+            lsposedActive = lsposedActive,
+            lsposedVersionLabel = lsposedVersionLabel,
             moduleEnabled = moduleEnabled,
             targetPackage = scopeHint,
             hookEnabled = HookPrefs.isHookEnabled(context),

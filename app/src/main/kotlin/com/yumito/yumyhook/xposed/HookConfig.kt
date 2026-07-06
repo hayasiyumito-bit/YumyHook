@@ -23,38 +23,52 @@ object HookConfig {
     @Volatile
     private var cachedConfigMtime: Long = 0L
 
-    /** 配置变更时轻量刷新，避免 Hook 目标 App 业务类。 */
+    @Volatile
+    private var cachedPrefsUpdatedAt: Long = 0L
+
+    /** 配置变更时轻量刷新（mtime + spoof_updated_at 双信号）。 */
     fun refreshHookCacheIfStale(): HookSpoofValues {
         if (HookReentryGuard.isInside()) {
             return cachedValues
         }
+        val prefs = peekFreshPrefs()
+        val prefsUpdatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
         val file = SpoofConfigFile.hookSideFile()
-        val mtime = if (file.exists()) file.lastModified() else 0L
-        if (mtime != cachedConfigMtime) {
+        val fileMtime = if (file.exists()) file.lastModified() else 0L
+        if (prefsUpdatedAt != cachedPrefsUpdatedAt || fileMtime != cachedConfigMtime) {
             return refreshHookCache()
         }
         return cachedValues
     }
 
-    /** 仅在进程启动 / 配置变更时调用。 */
+    /** 进程启动 / 检测到配置变更时调用。 */
     fun refreshHookCache(): HookSpoofValues {
         if (HookReentryGuard.isInside()) {
             return cachedValues
         }
+        val prefs = readFreshPrefs()
+        val prefsUpdatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
         val fromFile = SpoofConfigFile.readHookSide()
-        val values = sanitize(fromFile ?: loadFromXSharedPrefs())
-        cachedValues = values
-        cachedEnabled = SpoofConfigFile.readHookEnabled()
-            ?: readFreshPrefs().getBoolean(XposedConstants.PREF_KEY_ENABLED, false)
-        HookFeatureConfig.applyFromJson(
-            try {
-                org.json.JSONObject(SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.readText() ?: "{}")
-                    .optJSONObject(SpoofConfigFile.KEY_FEATURES)
-            } catch (_: Exception) {
-                null
+        val fromPrefs = loadFromPrefs(prefs)
+        val values = sanitize(
+            when {
+                fromFile != null && fromFile.updatedAt >= fromPrefs.updatedAt -> fromFile
+                fromPrefs.buildFields.isNotEmpty() -> fromPrefs
+                fromFile != null -> fromFile
+                else -> HookSpoofValues.DEFAULT
             },
         )
+        cachedValues = values
+        cachedPrefsUpdatedAt = prefsUpdatedAt
+        cachedEnabled = SpoofConfigFile.readHookEnabled()
+            ?: prefs.getBoolean(XposedConstants.PREF_KEY_ENABLED, false)
+        HookFeatureConfig.applyFromJson(readFeaturesJson())
         cachedConfigMtime = SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.lastModified() ?: 0L
+        HookFeatureConfig.syncRevision(cachedConfigMtime, cachedPrefsUpdatedAt)
+        if (NativeHookPolicy.shouldInstallNative(TargetContextHolder.packageName, HookFeatureConfig.current())) {
+            NativeBridge.syncProperties(cachedValues, null)
+        }
+        SpoofRuntime.reapplyIfRevisionChanged(values, "config-refresh")
         return cachedValues
     }
 
@@ -67,8 +81,7 @@ object HookConfig {
         return if (values.buildFields.isEmpty()) HookSpoofValues.DEFAULT else values
     }
 
-    private fun loadFromXSharedPrefs(): HookSpoofValues {
-        val prefs = readFreshPrefs()
+    private fun loadFromPrefs(prefs: android.content.SharedPreferences): HookSpoofValues {
         val defaults = HookSpoofValues.DEFAULT
         val profile = prefs.getString(PREF_PROFILE, defaults.profileLabel) ?: defaults.profileLabel
         val buildJson = prefs.getString(PREF_BUILD_JSON, null)
@@ -79,6 +92,22 @@ object HookConfig {
         } else {
             defaults
         }
+    }
+
+    private fun readFeaturesJson(): JSONObject? {
+        return try {
+            val text = SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.readText().orEmpty()
+            if (text.isBlank()) return null
+            JSONObject(text).optJSONObject(SpoofConfigFile.KEY_FEATURES)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun peekFreshPrefs(): android.content.SharedPreferences {
+        val prefs = XSharedPreferences(XposedConstants.MODULE_PACKAGE, XposedConstants.PREFS_NAME)
+        prefs.reload()
+        return prefs
     }
 
     private fun readFreshPrefs(): android.content.SharedPreferences {
@@ -92,16 +121,7 @@ object HookConfig {
     fun readFromAppContext(context: Context): HookSpoofValues {
         SpoofConfigFile.readModule(context)?.let { return it }
         val prefs = context.getSharedPreferences(XposedConstants.PREFS_NAME, Context.MODE_PRIVATE)
-        val defaults = HookSpoofValues.DEFAULT
-        val profile = prefs.getString(PREF_PROFILE, defaults.profileLabel) ?: defaults.profileLabel
-        val buildJson = prefs.getString(PREF_BUILD_JSON, null)
-        val idsJson = prefs.getString(PREF_IDS_JSON, null)
-        val updatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
-        return if (!buildJson.isNullOrBlank() && !idsJson.isNullOrBlank()) {
-            sanitize(HookSpoofValues.fromJson(buildJson, idsJson, profile, updatedAt))
-        } else {
-            defaults
-        }
+        return loadFromPrefs(prefs)
     }
 
     fun mapToJson(map: Map<String, String>): String {

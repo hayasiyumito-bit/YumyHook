@@ -1,0 +1,45 @@
+---
+description: YumyHook 作用域与 Hook 设计原则 — 系统层通用，禁止单 App 特化
+alwaysApply: true
+---
+
+# Hook 作用域原则（强制）
+
+## 目标
+
+YumyHook 的伪装与四通道 Hook **必须对 LSPosed 作用域内任意 App 生效**，不得为某一个包写专用逻辑。
+
+## 禁止
+
+- 针对单一 App 的类 / 方法 / JNI / `.so` 特化 Hook（例如 `com.android.device.Jni.JniInterface`、`libdevice.so`）
+- 在实现里用 `packageName == "com.android.device"`（或任意具体包名）分支决定 Hook 行为
+- 为「通过某个参考 App 的检测」而牺牲通用性
+
+## 允许
+
+- **系统层通用 Hook**：`android.os.Build`、`android.os.SystemProperties`、`Runtime.exec` / `ProcessBuilder`（getprop）、Native `libc` / `libcutils` 属性 API
+- **作用域门控**：`HookScope.shouldHook`（排除模块自身）、`NativeHookPolicy`（QQ/TIM 等 shadowhook 冲突黑名单）
+- **功能开关门控**：`HookFeatureConfig` / `spoofBuildProperties` 等用户配置
+
+## 参考 App（仅验证）
+
+`com.android.device`（deviceinfo_collect）**不是 Hook 目标**，仅用于：
+
+- 对照对方如何采集参数（getprop / SystemProperties / JNI `__system_property_get` 等）
+- 用 `debug_output.json` 回归四通道一致性
+
+验证时在 LSPosed 勾选该 App；**实现代码不得依赖该包存在**。
+
+## 系统框架作用域
+
+用户可勾选 **Android 系统框架**（`android` / `system_server`）以扩展框架侧能力；默认四通道以 **目标 App 进程内** Hook 为主（Build / SystemProperties / getprop / Native）。
+
+若检测逻辑在 `system_server` 或系统 ClassLoader，再评估框架作用域 Hook，仍须保持对任意作用域 App 可复用，禁止写死单个业务包。
+
+## 新增 Hook 自检
+
+1. 是否不依赖具体 `packageName`（黑名单/门控除外）？
+2. 换任意作用域 App，四通道是否仍应生效？
+3. 是否优先改系统 API / libc，而非目标 App 的 JNI？
+
+---

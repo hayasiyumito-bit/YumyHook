@@ -34,5 +34,5 @@ object XposedConstants {
     const val PREF_FRAMEWORK_ACTIVE_CACHE = "lsposed_framework_active_cache"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 22
+    const val HOOK_REV = 28
 }

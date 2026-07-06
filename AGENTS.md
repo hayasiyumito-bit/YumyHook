@@ -23,7 +23,8 @@
 - **语言**：仅 Kotlin，目录 `src/**/kotlin/`（禁止 `java/`）
 - **UI**：DataBinding + ViewModel（禁止 Compose）
 - **Hook**：Xposed API `compileOnly`，入口 `assets/xposed_init`
-- **目标包**：`com.android.device`（deviceinfo_collect）
+- **作用域**：LSPosed 作用域内**所有 App**（见 `.cursor/rules/hook-scope.mdc`）；**禁止**单包特化 Hook
+- **参考验证**：`com.android.device` 仅对照采集方式 / 回归 `debug_output.json`，非 Hook 目标
 - **测试**：仅 `src/test/kotlin/` 单元测试，无 androidTest
 
 ## 目录结构

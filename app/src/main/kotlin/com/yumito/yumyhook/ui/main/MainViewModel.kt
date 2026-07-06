@@ -8,6 +8,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.yumito.yumyhook.model.SpoofUiState
 import com.yumito.yumyhook.model.XposedStatus
+import com.yumito.yumyhook.util.HookConfigPublisher
 import com.yumito.yumyhook.util.HookPrefs
 import com.yumito.yumyhook.util.HookSessionController
 import com.yumito.yumyhook.util.HookSessionResult
@@ -130,13 +131,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun randomizeSpoof() {
         val app = getApplication<Application>()
-        val summary = HookPrefs.randomizeSpoof(app)
-        val spoof = HookPrefs.loadSpoofValues(app)
-        val features = HookPrefs.loadFeatures(app)
-        _spoofState.value = SpoofUiState(
-            profileLabel = features.configName,
-            buildSummary = spoof.buildSummary(),
-            currentFields = summary,
-        )
+        _hookBusy.value = true
+        worker.execute {
+            val summary = HookPrefs.randomizeSpoof(app)
+            HookConfigPublisher.publish(app)
+            val restart = HookSessionController.notifyConfigChanged(app)
+            val spoof = HookPrefs.loadSpoofValues(app)
+            val features = HookPrefs.loadFeatures(app)
+            mainHandler.post {
+                _hookBusy.value = false
+                _spoofState.value = SpoofUiState(
+                    profileLabel = features.configName,
+                    buildSummary = spoof.buildSummary(),
+                    currentFields = summary,
+                )
+                restart?.message?.let { _sessionMessage.value = it }
+            }
+        }
     }
 }

@@ -114,6 +114,7 @@ object HookProfilesStore {
             .putLong(XposedConstants.PREF_UPDATED_AT, stamped.updatedAt)
             .commit()
         SpoofConfigFile.write(context, stamped, document.hookEnabled, active.features.normalized())
+        HookConfigPublisher.publish(context)
     }
 
     private fun migrateLegacyIfNeeded(context: Context) {

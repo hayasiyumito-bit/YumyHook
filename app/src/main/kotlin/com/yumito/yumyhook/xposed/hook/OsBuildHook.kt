@@ -54,6 +54,7 @@ object OsBuildHook {
         object : XC_MethodHook() {
           override fun afterHookedMethod(param: MethodHookParam) {
             TargetContextHolder.bind(param.args[0] as Context)
+            patcher.run()
           }
         },
       )

@@ -7,6 +7,8 @@ import com.yumito.yumyhook.ProjectAttribution
 import com.yumito.yumyhook.xposed.HookFeatureConfig
 import com.yumito.yumyhook.xposed.NativeHookPolicy
 import com.yumito.yumyhook.xposed.HookScope
+import com.yumito.yumyhook.xposed.NativeBridge
+import com.yumito.yumyhook.xposed.SpoofRuntime
 import com.yumito.yumyhook.xposed.TargetContextHolder
 import com.yumito.yumyhook.xposed.XposedConstants
 import com.yumito.yumyhook.xposed.hook.stealth.DeferredStealthInstaller
@@ -28,6 +30,10 @@ object SystemHookInstaller {
             OsBuildHook.install(lpparam)
             SystemPropertiesHook.install(lpparam)
             GetpropHook.install(lpparam)
+            if (nativeForPkg) {
+                NativeBridge.installEarly(lpparam)
+            }
+            SpoofRuntime.applyChannelsEarly("handleLoadPackage")
         }
         FeatureStealthInstaller.install(lpparam)
         if (nativeForPkg) {

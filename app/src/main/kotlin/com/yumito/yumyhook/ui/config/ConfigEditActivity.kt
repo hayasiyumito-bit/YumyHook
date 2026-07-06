@@ -3,8 +3,6 @@ package com.yumito.yumyhook.ui.config
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -37,7 +35,7 @@ class ConfigEditActivity : AppCompatActivity() {
     private val featureAdapter = HookFeatureAdapter(
         onToggle = { key, enabled ->
             val ok = viewModel.setFeature(key, enabled)
-            ConfigDebugLog.log(this, "switch $key -> $enabled")
+            if (ok) logFeatureToggle(key, enabled)
             ok
         },
     )
@@ -87,7 +85,7 @@ class ConfigEditActivity : AppCompatActivity() {
                     section.switch.isChecked = !checked
                     suppressSectionToggle = false
                 } else {
-                    ConfigDebugLog.log(this@ConfigEditActivity, "section ${section.key} -> $checked")
+                    logFeatureToggle(section.key, checked)
                 }
             }
         }
@@ -101,18 +99,15 @@ class ConfigEditActivity : AppCompatActivity() {
         binding.btnDeleteProfile.setOnClickListener { deleteActiveProfile() }
         binding.btnSaveDevice.setOnClickListener {
             val fields = collectBuildFields()
-            ConfigDebugLog.log(this, "save device: $fields")
+            ConfigDebugLog.logSave(this, "设备参数", fields)
             viewModel.saveBuildFields(fields)
         }
         binding.btnSaveSim.setOnClickListener {
             val fields = collectIdsFields()
-            ConfigDebugLog.log(this, "save sim: $fields")
+            ConfigDebugLog.logSave(this, "SIM 参数", fields)
             viewModel.saveIdsFields(fields)
         }
-        binding.btnRandomizeAll.setOnClickListener {
-            ConfigDebugLog.log(this, "randomize all")
-            viewModel.randomizeAll()
-        }
+        binding.btnRandomizeAll.setOnClickListener { viewModel.randomizeAll() }
 
         viewModel.featureRows.observe(this) { rows -> featureAdapter.submit(rows) }
         viewModel.experimentalRows.observe(this) { rows -> experimentalAdapter.submit(rows) }
@@ -183,7 +178,6 @@ class ConfigEditActivity : AppCompatActivity() {
                 ).apply { marginEnd = gap }
                 setOnClickListener {
                     if (suppressTabSelect) return@setOnClickListener
-                    ConfigDebugLog.log(this@ConfigEditActivity, "tab -> ${profile.name}")
                     viewModel.selectTab(index, collectBuildFields(), collectIdsFields())
                 }
             }
@@ -232,16 +226,13 @@ class ConfigEditActivity : AppCompatActivity() {
             .setTitle(R.string.add_profile)
             .setView(input)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                val name = input.text?.toString().orEmpty()
-                ConfigDebugLog.log(this, "add profile: $name")
-                viewModel.addProfile(name)
+                viewModel.addProfile(input.text?.toString().orEmpty())
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
     private fun deleteActiveProfile() {
-        ConfigDebugLog.log(this, "delete active profile")
         if (!viewModel.deleteActiveProfile()) {
             Toast.makeText(this, R.string.cannot_delete_last_profile, Toast.LENGTH_SHORT).show()
         }
@@ -261,18 +252,17 @@ class ConfigEditActivity : AppCompatActivity() {
     }
 
     private fun buildIdsFieldInputs() {
-        addFieldInputs(binding.containerIdsFields, viewModel.idsFieldKeys, idsInputs, "ids")
+        addFieldInputs(binding.containerIdsFields, viewModel.idsFieldKeys, idsInputs)
     }
 
     private fun buildBuildFieldInputs() {
-        addFieldInputs(binding.containerBuildFields, viewModel.buildFieldKeys, buildInputs, "build")
+        addFieldInputs(binding.containerBuildFields, viewModel.buildFieldKeys, buildInputs)
     }
 
     private fun addFieldInputs(
         container: android.widget.LinearLayout,
         keys: List<String>,
         target: MutableMap<String, TextInputEditText>,
-        group: String,
     ) {
         keys.forEach { key ->
             val layout = TextInputLayout(this).apply {
@@ -283,17 +273,17 @@ class ConfigEditActivity : AppCompatActivity() {
                 ).apply { bottomMargin = (8 * resources.displayMetrics.density).toInt() }
             }
             val edit = TextInputEditText(layout.context)
-            edit.addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    ConfigDebugLog.log(this@ConfigEditActivity, "input $group.$key = ${s?.toString().orEmpty()}")
-                }
-            })
             layout.addView(edit)
             container.addView(layout)
             target[key] = edit
         }
+    }
+
+    private fun logFeatureToggle(key: String, enabled: Boolean) {
+        val title = (HookFeatures.uiCatalog() + HookFeatures.experimentalCatalog())
+            .find { it.key == key }
+            ?.title ?: key
+        ConfigDebugLog.logFeatureToggle(this, title, key, enabled)
     }
 
     private fun collectBuildFields(): Map<String, String> =

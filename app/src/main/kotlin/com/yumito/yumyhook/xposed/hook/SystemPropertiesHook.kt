@@ -13,20 +13,38 @@ import com.yumito.yumyhook.xposed.XposedConstants
 object SystemPropertiesHook {
 
     private const val TARGET_CLASS = "android.os.SystemProperties"
+    private val bootClassLoader: ClassLoader? = null
 
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
-        installGetter(lpparam, "get", String::class.java)
-        installGetter(lpparam, "get", String::class.java, String::class.java)
-        installGetter(lpparam, "getInt", String::class.java, Integer.TYPE)
-        installGetter(lpparam, "getLong", String::class.java, java.lang.Long.TYPE)
-        installGetter(lpparam, "getBoolean", String::class.java, java.lang.Boolean.TYPE)
+        val signatures = listOf(
+            arrayOf<Any>("get", String::class.java),
+            arrayOf<Any>("get", String::class.java, String::class.java),
+            arrayOf<Any>("getInt", String::class.java, Integer.TYPE),
+            arrayOf<Any>("getLong", String::class.java, java.lang.Long.TYPE),
+            arrayOf<Any>("getBoolean", String::class.java, java.lang.Boolean.TYPE),
+        )
+        if (hookSignatures(bootClassLoader, signatures, "boot")) return
+        hookSignatures(lpparam.classLoader, signatures, "app")
     }
 
-    private fun installGetter(lpparam: XC_LoadPackage.LoadPackageParam, name: String, vararg paramTypes: Any) {
-        try {
+    private fun hookSignatures(classLoader: ClassLoader?, signatures: List<Array<Any>>, tag: String): Boolean {
+        var ok = 0
+        for (params in signatures) {
+            val name = params[0] as String
+            val types = params.drop(1).toTypedArray()
+            if (installGetter(classLoader, name, *types)) ok++
+        }
+        if (ok > 0) {
+            XposedBridge.log("${XposedConstants.TAG}: SystemProperties hooked via $tag loader ($ok/${signatures.size})")
+        }
+        return ok == signatures.size
+    }
+
+    private fun installGetter(classLoader: ClassLoader?, name: String, vararg paramTypes: Any): Boolean {
+        return try {
             XposedHelpers.findAndHookMethod(
                 TARGET_CLASS,
-                lpparam.classLoader,
+                classLoader,
                 name,
                 *paramTypes,
                 object : XC_MethodHook() {
@@ -52,8 +70,10 @@ object SystemPropertiesHook {
                     }
                 },
             )
+            true
         } catch (e: Throwable) {
-            XposedBridge.log("${XposedConstants.TAG}: SystemProperties.$name hook skip: ${e.message}")
+            XposedBridge.log("${XposedConstants.TAG}: SystemProperties.$name hook skip ($classLoader): ${e.message}")
+            false
         }
     }
 }

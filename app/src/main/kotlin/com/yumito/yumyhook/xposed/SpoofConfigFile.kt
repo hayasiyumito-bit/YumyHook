@@ -1,7 +1,7 @@
 package com.yumito.yumyhook.xposed
 
 import android.content.Context
-import de.robv.android.xposed.XposedBridge
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 
@@ -21,6 +21,8 @@ object SpoofConfigFile {
     const val KEY_FEATURES = "features"
 
     fun hookSideFile(): File {
+        val mirror = publicMirrorFile()
+        if (mirror.exists() && mirror.length() > 0L) return mirror
         val candidates = listOf(
             "/data/data/${XposedConstants.MODULE_PACKAGE}/files/$FILE_NAME",
             "/data/user/0/${XposedConstants.MODULE_PACKAGE}/files/$FILE_NAME",
@@ -30,6 +32,36 @@ object SpoofConfigFile {
             if (file.exists()) return file
         }
         return File(candidates.first())
+    }
+
+    fun publicMirrorFile(): File = File("/data/local/tmp/yumyhook/$FILE_NAME")
+
+    /** UI 写入后：chmod 私有文件 + 镜像到 /data/local/tmp 供目标进程直读。 */
+    fun publishReadable(context: Context) {
+        val target = File(context.filesDir, FILE_NAME)
+        chmodWorldReadable(target)
+        mirrorToPublic(target)
+    }
+
+    private fun mirrorToPublic(source: File) {
+        if (!source.exists() || source.length() == 0L) return
+        try {
+            val dir = publicMirrorFile().parentFile ?: return
+            if (!dir.exists()) dir.mkdirs()
+            chmodWorldReadable(dir)
+            source.copyTo(publicMirrorFile(), overwrite = true)
+            chmodWorldReadable(publicMirrorFile())
+        } catch (e: Exception) {
+            Log.w(XposedConstants.TAG, "SpoofConfigFile.mirror failed: ${e.message}")
+        }
+    }
+
+    private fun chmodWorldReadable(file: File) {
+        try {
+            file.setReadable(true, false)
+            file.setWritable(true, true)
+        } catch (_: Throwable) {
+        }
     }
 
     fun write(context: Context, values: HookSpoofValues, enabled: Boolean = true, features: com.yumito.yumyhook.model.HookFeatures = com.yumito.yumyhook.model.HookFeatures.DEFAULT) {
@@ -93,7 +125,7 @@ object SpoofConfigFile {
             val updatedAt = obj.optLong(KEY_UPDATED_AT, 0L)
             HookConfig.sanitize(HookSpoofValues(profile, build, ids, updatedAt))
         } catch (e: Exception) {
-            XposedBridge.log("${XposedConstants.TAG}: SpoofConfigFile.read failed: ${e.message}")
+            Log.w(XposedConstants.TAG, "SpoofConfigFile.read failed: ${e.message}")
             null
         }
     }

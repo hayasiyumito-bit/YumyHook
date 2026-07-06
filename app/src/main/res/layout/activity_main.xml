@@ -126,6 +126,14 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
+                            android:text="@{viewModel.status.lsposedActive ? @string/lsposed_status_active(viewModel.status.lsposedVersionLabel) : @string/lsposed_status_inactive}"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            tools:text="LSPosed：已激活（1.9.2）" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
                             android:text="@{viewModel.status.moduleEnabled ? @string/xposed_module_enabled : @string/xposed_module_disabled}"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
                             tools:text="模块状态：已启用" />

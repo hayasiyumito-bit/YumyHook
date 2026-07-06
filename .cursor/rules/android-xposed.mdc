@@ -24,6 +24,7 @@ alwaysApply: false
 - Hook 放 `xposed/`，入口写入 `assets/xposed_init`
 - Xposed API 仅 `compileOnly`，宿主侧反射检测框架
 - `XposedBridge.log` 打日志，精准捕获异常
+- **通用 Hook 原则**（强制）：见 `.cursor/rules/hook-scope.mdc` — 系统层四通道，禁止针对单一 App / `libdevice.so` 等特化；`com.android.device` 仅作验证参考
 
 ## AI 工具
 

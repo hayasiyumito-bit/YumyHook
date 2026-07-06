@@ -73,6 +73,91 @@ object LsposedConfigReader {
         }
     }
 
+    /** LSPosed Manager 版本号；无 Manager 时返回 null。 */
+    fun resolveManagerVersion(context: Context): String? {
+        val pm = context.packageManager
+        for (pkg in listOf("org.lsposed.manager", "io.github.lsposed.manager")) {
+            try {
+                val info = pm.getPackageInfo(pkg, 0)
+                val name = info.versionName?.trim().orEmpty()
+                if (name.isNotEmpty()) return name
+            } catch (_: PackageManager.NameNotFoundException) {
+            }
+        }
+        return null
+    }
+
+    /**
+     * LSPosed 框架版本：Manager → Root module.prop → getprop → dumpsys（隐藏 Manager 时）。
+     */
+    fun resolveFrameworkVersion(context: Context, useRoot: Boolean = false): String? {
+        resolveManagerVersion(context)?.let { return it }
+        if (!useRoot || !RootShell.ensureRoot()) return null
+
+        for (path in LSPOSED_MODULE_PROP_PATHS) {
+            val out = RootShell.exec("cat '$path' 2>/dev/null")
+            if (out.exitCode == 0) {
+                parseModulePropVersion(out.output)?.let { return it }
+            }
+        }
+
+        for (key in listOf("ro.lsposed.version", "persist.sys.lsposed.version")) {
+            val ver = RootShell.exec("getprop $key").output.trim()
+            if (ver.isNotEmpty()) return ver
+        }
+
+        for (pkg in listOf("org.lsposed.manager", "io.github.lsposed.manager")) {
+            val ver = readPackageVersionViaRoot(pkg)
+            if (!ver.isNullOrBlank()) return ver
+        }
+        return null
+    }
+
+    private val LSPOSED_MODULE_PROP_PATHS = listOf(
+        "/data/adb/modules/zygisk_lsposed/module.prop",
+        "/data/adb/modules/riru_lsposed/module.prop",
+        "/data/adb/modules/lsposed/module.prop",
+    )
+
+    private fun parseModulePropVersion(text: String): String? {
+        for (line in text.lineSequence()) {
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith("version=") -> {
+                    trimmed.removePrefix("version=").trim().takeIf { it.isNotEmpty() }?.let { return it }
+                }
+                trimmed.startsWith("versionName=") -> {
+                    trimmed.removePrefix("versionName=").trim().takeIf { it.isNotEmpty() }?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun readPackageVersionViaRoot(packageName: String): String? {
+        val dumpsys = RootShell.exec("dumpsys package $packageName 2>/dev/null")
+        if (dumpsys.exitCode != 0) return null
+        val fromDumpsys = Regex("""versionName=([^\s]+)""")
+            .find(dumpsys.output)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (!fromDumpsys.isNullOrEmpty()) return fromDumpsys
+
+        val pmPath = RootShell.exec("pm path $packageName 2>/dev/null").output.trim()
+        if (pmPath.isBlank()) return null
+        val apkPath = pmPath.removePrefix("package:").trim()
+        if (apkPath.isBlank()) return null
+        val badging = RootShell.exec("aapt dump badging '$apkPath' 2>/dev/null")
+        if (badging.exitCode != 0) return null
+        return Regex("""versionName='([^']+)'""")
+            .find(badging.output)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
     fun queryModuleEnabledViaProvider(context: Context, modulePackage: String): Boolean? {
         val authorities = listOf(
             "org.lsposed.manager.status",

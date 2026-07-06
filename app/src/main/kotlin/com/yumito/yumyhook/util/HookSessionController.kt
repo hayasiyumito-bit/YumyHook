@@ -68,6 +68,12 @@ object HookSessionController {
         return HookSessionResult(enabled = isEnabled(context), message = msg)
     }
 
+    /** 配置变更后强停作用域内目标 App（有 Root 时），与开启 Hook 时行为一致。 */
+    fun notifyConfigChanged(context: Context): HookSessionResult? {
+        if (!isEnabled(context)) return null
+        return restartScopedTargets(context, prefix = "伪装参数已更新")
+    }
+
     private fun setHookEnabled(context: Context, enabled: Boolean) {
         val profile = HookProfileStore.load(context)
         HookProfileStore.save(context, profile.copy(hookEnabled = enabled))

@@ -4,6 +4,8 @@ package com.yumito.yumyhook.model
 data class XposedStatus(
     val frameworkActive: Boolean,
     val frameworkVersion: Int,
+    val lsposedActive: Boolean,
+    val lsposedVersionLabel: String,
     val moduleEnabled: Boolean,
     val targetPackage: String,
     val hookEnabled: Boolean,
