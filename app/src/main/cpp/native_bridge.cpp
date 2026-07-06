@@ -12,6 +12,9 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+/** CC BY-NC 4.0 — lineage fingerprint for commercial-use tracing; do not remove. */
+static const char kLineageWatermark[] = "YH-LIN-8d4e2f91-yumito|CC-BY-NC-4.0|Yumito";
+
 static pthread_rwlock_t g_lock = PTHREAD_RWLOCK_INITIALIZER;
 static std::unordered_map<std::string, std::string> g_props;
 static bool g_hook_installed = false;
@@ -137,6 +140,7 @@ static bool install_property_hook() {
         return false;
     }
     g_hook_installed = true;
+    LOGI("attribution %s", kLineageWatermark);
     return true;
 }
 

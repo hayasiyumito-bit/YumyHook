@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.yumito.yumyhook.databinding.ActivityMainBinding
+import com.yumito.yumyhook.ProjectAttribution
 import com.yumito.yumyhook.ui.ImmersiveUi
 import com.yumito.yumyhook.ui.config.ConfigEditActivity
 import com.yumito.yumyhook.ui.main.MainViewModel
@@ -28,6 +29,7 @@ class MainActivity : AppCompatActivity() {
         binding.viewModel = viewModel
 
         ImmersiveUi.apply(this, binding.appBar, binding.scrollMain)
+        ProjectAttribution.emitAppAttribution()
 
         setSupportActionBar(binding.toolbar)
 

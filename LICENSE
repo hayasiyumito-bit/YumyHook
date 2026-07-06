@@ -1,27 +1,40 @@
-YumyHook Non-Commercial License
+YumyHook — Creative Commons Attribution-NonCommercial 4.0 International
 
-Copyright (c) 2026 Yumito
+Copyright (c) 2026 Yumito (张宸硕). All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use,
-copy, modify, and distribute the Software for personal, educational, and
-non-commercial purposes only, subject to the following conditions:
+This work is licensed under the Creative Commons Attribution-NonCommercial
+4.0 International License (CC BY-NC 4.0).
 
-1. The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
+You are free to:
+  - Share — copy and redistribute the material in any medium or format
+  - Adapt — remix, transform, and build upon the material
 
-2. COMMERCIAL USE IS PROHIBITED. You may not use the Software, or any
-   derivative work, for commercial purposes, including but not limited to:
-   selling, sublicensing, offering as a paid service, or incorporating into
-   commercial products or services, without prior written permission from the
-   copyright holder.
+Under the following terms:
+  - Attribution — You must give appropriate credit, provide a link to the
+    license, and indicate if changes were made.
+  - NonCommercial — You may not use the material for commercial purposes.
 
-3. The Software is provided "AS IS", without warranty of any kind, express or
-   implied, including but not limited to the warranties of merchantability,
-   fitness for a particular purpose and noninfringement. In no event shall the
-   authors or copyright holders be liable for any claim, damages or other
-   liability, whether in an action of contract, tort or otherwise, arising from,
-   out of or in connection with the Software or the use or other dealings in
-   the Software.
+Full legal text:
+  https://creativecommons.org/licenses/by-nc/4.0/legalcode
 
-For commercial licensing inquiries, contact the repository owner.
+Human-readable summary:
+  https://creativecommons.org/licenses/by-nc/4.0/
+
+-------------------------------------------------------------------------------
+
+Additional terms (copyright holder reservation):
+
+1. The copyright holder (Yumito / 张宸硕) is NOT a licensee of this work and
+   therefore retains the exclusive right to use, license, sublicense, sell,
+   or otherwise exploit this work for commercial purposes.
+
+2. Third parties seeking commercial use must obtain a separate written
+   commercial license from the copyright holder. CC BY-NC 4.0 does not grant
+   such rights.
+
+3. Each distribution must retain the lineage fingerprint embedded in source
+   code and build artifacts (see COMMERCIAL_RIGHTS.md). Removing or altering
+   these markers without permission may constitute infringement.
+
+For commercial licensing inquiries:
+  https://gitee.com/Yumito

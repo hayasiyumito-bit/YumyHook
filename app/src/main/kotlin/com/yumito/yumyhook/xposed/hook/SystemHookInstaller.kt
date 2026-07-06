@@ -3,6 +3,7 @@ package com.yumito.yumyhook.xposed.hook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.yumito.yumyhook.xposed.HookConfig
+import com.yumito.yumyhook.ProjectAttribution
 import com.yumito.yumyhook.xposed.HookFeatureConfig
 import com.yumito.yumyhook.xposed.NativeHookPolicy
 import com.yumito.yumyhook.xposed.HookScope
@@ -21,7 +22,7 @@ object SystemHookInstaller {
         val features = HookFeatureConfig.current()
         val nativeForPkg = NativeHookPolicy.shouldInstallNative(lpparam.packageName, features)
         XposedBridge.log(
-            "${XposedConstants.TAG}: hooks installed rev=${XposedConstants.HOOK_REV} pkg=${lpparam.packageName} native=$nativeForPkg",
+            "${XposedConstants.TAG}: hooks installed rev=${XposedConstants.HOOK_REV} pkg=${lpparam.packageName} native=$nativeForPkg lineage=${ProjectAttribution.LINEAGE_FINGERPRINT}",
         )
         if (features.spoofBuildProperties) {
             OsBuildHook.install(lpparam)

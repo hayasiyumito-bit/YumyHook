@@ -10,12 +10,14 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.yumito.yumyhook.xposed.hook.SystemHookInstaller
 import com.yumito.yumyhook.util.HookProfilesStore
+import com.yumito.yumyhook.ProjectAttribution
 
 /** LSPosed 入口：Zygote 记录模块路径，目标进程安装系统层 Hook。 */
 class XposedEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName == XposedConstants.MODULE_PACKAGE) {
+            ProjectAttribution.emitXposedAttribution(XposedBridge::log)
             XposedBridge.log("${XposedConstants.TAG}: 模块自身已加载")
             installModuleSelfHooks()
             return
@@ -29,6 +31,7 @@ class XposedEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam) {
         ModulePathHolder.moduleApkPath = startupParam.modulePath
+        ProjectAttribution.emitXposedAttribution(XposedBridge::log)
         XposedBridge.log("${XposedConstants.TAG}: Zygote init, path=${startupParam.modulePath}")
     }
 

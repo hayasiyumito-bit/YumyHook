@@ -2,6 +2,15 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+val gitBuildStamp: String = run {
+    val hash = runCatching {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+        }.standardOutput.asText.get().trim()
+    }.getOrDefault("nogit")
+    hash.ifBlank { "nogit" }
+}
+
 android {
     namespace = "com.yumito.yumyhook"
     ndkVersion = "27.0.12077973"
@@ -15,6 +24,8 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "BUILD_STAMP", "\"$gitBuildStamp\"")
+        buildConfigField("String", "LINEAGE_FINGERPRINT", "\"YH-LIN-8d4e2f91-yumito\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -50,6 +61,7 @@ android {
     buildFeatures {
         dataBinding = true
         prefab = true
+        buildConfig = true
     }
 }
 

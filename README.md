@@ -2,7 +2,9 @@
 
 基于 LSPosed / Xposed 的 Android 系统层设备伪装模块。通过 Hook `android.os.Build`、`SystemProperties`、`getprop` 及 Native 属性读取，对作用域内 App 返回可配置的伪装参数，并附带多项反检测能力。
 
-> **许可**：本项目采用 [非商业许可](LICENSE)。禁止未经授权的商业使用。
+> **许可**：[CC BY-NC 4.0](LICENSE)（署名-非商业性使用）。第三方禁止商用；**版权人 Yumito 保留独占商用权**。详见 [COMMERCIAL_RIGHTS.md](COMMERCIAL_RIGHTS.md)。
+
+谱系指纹：`YH-LIN-8d4e2f91-yumito`（源码 / APK / logcat 可检索，用于追溯未授权商用）
 
 ## 功能概览
 

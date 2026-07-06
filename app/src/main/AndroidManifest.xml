@@ -45,6 +45,20 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
+        <!-- 版权谱系埋点：CC BY-NC 4.0，商用权保留予 Yumito -->
+        <meta-data
+            android:name="yumyhook.license"
+            android:value="CC-BY-NC-4.0" />
+        <meta-data
+            android:name="yumyhook.lineage"
+            android:value="YH-LIN-8d4e2f91-yumito" />
+        <meta-data
+            android:name="yumyhook.copyright"
+            android:value="Yumito" />
+        <meta-data
+            android:name="yumyhook.repository"
+            android:value="https://gitee.com/Yumito/yumy-hook" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
