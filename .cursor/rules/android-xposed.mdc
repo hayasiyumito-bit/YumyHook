@@ -1,0 +1,32 @@
+---
+description: Android Xposed 模块与 DataBinding 开发约定
+globs:
+  - "**/*.kt"
+  - "**/*.xml"
+alwaysApply: false
+---
+
+# Android Xposed 项目约定
+
+## 语言
+
+- 仅 Kotlin，路径 `src/main/kotlin/`、`src/test/kotlin/`
+- 禁止新建 `src/**/java/` 目录或 `.java` 源文件
+
+## UI
+
+- DataBinding + ViewModel，禁止 Jetpack Compose
+- Activity 用 `DataBindingUtil.setContentView`
+- 列表用 RecyclerView + ListAdapter
+
+## Xposed
+
+- Hook 放 `xposed/`，入口写入 `assets/xposed_init`
+- Xposed API 仅 `compileOnly`，宿主侧反射检测框架
+- `XposedBridge.log` 打日志，精准捕获异常
+
+## AI 工具
+
+- 任务前：Superpowers + Caveman（见 `ai-workflow.mdc`）
+- 改代码前：Codegraph 查调用链
+- 大改动后：`/understand` 更新图谱

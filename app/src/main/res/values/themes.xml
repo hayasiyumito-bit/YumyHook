@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.YumyHook" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#FB7299</item>
+        <item name="colorPrimaryVariant">#E05E84</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorSecondary">#00A1D6</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="materialSwitchStyle">@style/Widget.YumyHook.Switch</item>
+    </style>
+
+    <style name="Widget.YumyHook.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="thumbTint">@color/switch_thumb_hook</item>
+        <item name="trackTint">@color/switch_track_hook</item>
+    </style>
+</resources>

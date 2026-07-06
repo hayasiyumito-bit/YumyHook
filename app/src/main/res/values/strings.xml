@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">YumyHook</string>
+    <string name="xposed_module_description">系统层伪装：Hook android.os.Build、SystemProperties、getprop，对 LSPosed 作用域内 App 生效。</string>
+
+    <string name="xposed_status_title">Xposed 运行状态</string>
+    <string name="xposed_framework_active">Xposed 框架：已激活（版本 %1$d）</string>
+    <string name="xposed_framework_inactive">Xposed 框架：未检测到</string>
+    <string name="xposed_module_enabled">模块状态：已在 LSPosed 中启用</string>
+    <string name="xposed_module_disabled">模块状态：未启用（请在 LSPosed 中勾选本模块）</string>
+    <string name="xposed_target_package">Hook 范围：%1$s</string>
+    <string name="xposed_hook_enabled">系统伪装：已开启</string>
+    <string name="xposed_hook_disabled">系统伪装：已关闭</string>
+    <string name="hook_master_switch_title">开启 Hook 伪装</string>
+    <string name="hook_master_switch_hint">默认关闭；会记住上次开关状态。开启后通过 Root 强行停止 LSPosed 作用域内全部 App，使其下次启动时加载 Hook。</string>
+    <string name="xposed_module_enabled_restart_hint">模块状态：已在 LSPosed 中启用（若刚勾选，请强停本 App 后重开以完成注入）</string>
+    <string name="refresh_status">刷新状态</string>
+
+    <string name="spoof_card_title">系统 Build 伪装</string>
+    <string name="spoof_profile_label">当前参数：%1$s</string>
+    <string name="spoof_current_params_title">全部参数</string>
+    <string name="spoof_build_summary">%1$s</string>
+    <string name="spoof_change_title">当前伪装字段</string>
+    <string name="spoof_change_empty">点击下方按钮生成伪装档案</string>
+    <string name="spoof_randomize">随机切换伪装值</string>
+    <string name="spoof_randomize_hint">切换后在目标 App 点重新采集即可（无需针对 App 内部类）</string>
+
+    <string name="config_edit_title">编辑配置</string>
+    <string name="config_name_hint">配置名称</string>
+    <string name="privacy_settings_title">隐私设置</string>
+    <string name="randomize_all">随机全部</string>
+    <string name="build_fields_title">设备参数</string>
+    <string name="ids_fields_title">SIM / 标识参数</string>
+    <string name="native_hook_section_title">Native 属性 Hook</string>
+    <string name="save_config">保存</string>
+    <string name="save_device_params">保存设备参数</string>
+    <string name="save_sim_params">保存 SIM 参数</string>
+    <string name="add_profile">添加配置</string>
+    <string name="delete_profile">删除配置</string>
+    <string name="cannot_delete_last_profile">至少保留一个配置</string>
+    <string name="debug_ui_log_title">配置调试日志</string>
+    <string name="debug_ui_log_desc">开启后 logcat 过滤 YumyHookConfig 查看开关与输入</string>
+    <string name="experimental_section_title">实验 / 未完善（开启无效）</string>
+    <string name="feature_not_implemented">该功能尚未实现</string>
+    <string name="open_config_editor">编辑 Hook 配置</string>
+    <string name="config_editor_hint">开关对应反检测项；Build 字段与参考 App 一致</string>
+</resources>

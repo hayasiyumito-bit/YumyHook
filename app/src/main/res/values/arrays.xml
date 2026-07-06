@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 XposedConstants.RECOMMENDED_SCOPE_PACKAGES 保持一致 -->
+    <string-array name="xposed_scope">
+        <item>com.android.device</item>
+        <item>com.tencent.mobileqq</item>
+        <item>com.tencent.mm</item>
+        <item>com.alibaba.android.rimet</item>
+        <item>tv.danmaku.bili</item>
+        <item>cn.xyner.tools</item>
+    </string-array>
+</resources>

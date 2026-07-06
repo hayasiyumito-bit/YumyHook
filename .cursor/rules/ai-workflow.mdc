@@ -1,0 +1,32 @@
+---
+description: 常驻 AI 工作流 — Superpowers + Caveman
+alwaysApply: true
+---
+
+# 常驻 AI 工作流
+
+## Superpowers（强制）
+
+每个任务开始前：
+
+1. 读 `.agents/skills/using-superpowers/SKILL.md`（或 Cursor 插件 `superpowers`）
+2. 有创意/功能需求 → `brainstorming` skill 先设计
+3. 实现 → 按 `test-driven-development` 或 `verification-before-completion` 验证
+4. Bug → `systematic-debugging` skill
+
+流程优先级：用户指令 > Superpowers > 默认行为
+
+## Caveman（强制）
+
+所有**面向用户的回复**使用 Caveman 风格（`.agents/skills/caveman/SKILL.md`）：
+
+- 去废话，技术内容完整
+- 代码块、API 名、错误信息保持原样
+- 用户说 "stop caveman" / "normal mode" 才恢复
+
+代码提交、PR 描述写正常文风。
+
+## 语言与源码
+
+- **仅 Kotlin**，源码目录 `src/**/kotlin/`，禁止 `src/**/java/`
+- 无 androidTest，不做仪器测试

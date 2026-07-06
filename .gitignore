@@ -1,0 +1,36 @@
+# Gradle / Android
+*.iml
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# IDE
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local debug artifacts
+debug_output.json
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Code intelligence (regenerate locally)
+.codegraph/
+
+# Agent / Cursor local state (optional)
+.cursor/projects/
