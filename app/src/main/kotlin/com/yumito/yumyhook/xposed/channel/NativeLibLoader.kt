@@ -67,6 +67,7 @@ object NativeLibLoader {
                 purgeStaleExtract(appDataDir)
                 loadFromApk(moduleApkPath, File(appDataDir, EXTRACT_DIR), libs, loader)
             } catch (e: Throwable) {
+                loaded = false
                 XposedBridge.log("${XposedConstants.TAG}: native load failed: ${e.message}")
                 false
             }
@@ -118,18 +119,88 @@ object NativeLibLoader {
         return true
     }
 
-    /** Runtime.load0(hostCl, path) — shadowhook 须与目标 App .so 处于同一 linker namespace。 */
+  /**
+   * 必须在宿主 ClassLoader 的 linker namespace 加载，禁止回退 System.load（会进模块隔离 ns）。
+   * Android 14+ 封禁 Runtime.load(path, ClassLoader)；改走 VMRuntime.nativeLoad。
+   */
     private fun loadNativeInHostNamespace(hostClassLoader: ClassLoader, absolutePath: String) {
-        val runtime = Runtime.getRuntime()
-        try {
-            XposedHelpers.callMethod(runtime, "load0", hostClassLoader, absolutePath)
-        } catch (e: Throwable) {
-            XposedBridge.log(
-                "${XposedConstants.TAG}: Runtime.load0 failed (${e.message}), fallback System.load",
-            )
-            @Suppress("DEPRECATION")
-            System.load(absolutePath)
+        if (Build.VERSION.SDK_INT >= 34) {
+            loadViaVmRuntime(hostClassLoader, absolutePath)
+            return
         }
+        val runtime = Runtime.getRuntime()
+        var lastError: Throwable? = null
+        for (method in arrayOf("load", "load0")) {
+            try {
+                if (method == "load") {
+                    XposedHelpers.callMethod(runtime, method, absolutePath, hostClassLoader)
+                } else {
+                    XposedHelpers.callMethod(runtime, method, hostClassLoader, absolutePath)
+                }
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: native load host-ns via Runtime.$method " +
+                        "cl=${hostClassLoader.javaClass.name} path=$absolutePath",
+                )
+                return
+            } catch (e: Throwable) {
+                lastError = e
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: Runtime.$method(hostCl) failed: ${e.message}",
+                )
+            }
+        }
+        throw IllegalStateException(
+            "cannot load native lib in host namespace: $absolutePath",
+            lastError,
+        )
+    }
+
+    private fun loadViaVmRuntime(hostClassLoader: ClassLoader, absolutePath: String) {
+        val vmRuntime = XposedHelpers.callStaticMethod(
+            XposedHelpers.findClass("dalvik.system.VMRuntime", null),
+            "getRuntime",
+        )
+        val caller = hostCallerClass(hostClassLoader)
+        var lastError: Throwable? = null
+        val argVariants = listOf(
+            arrayOf(absolutePath, hostClassLoader, caller),
+            arrayOf(absolutePath, hostClassLoader),
+        )
+        for (args in argVariants) {
+            try {
+                val err = XposedHelpers.callMethod(vmRuntime, "nativeLoad", *args) as? String
+                if (!err.isNullOrBlank()) {
+                    throw UnsatisfiedLinkError(err)
+                }
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: native load host-ns via VMRuntime.nativeLoad " +
+                        "args=${args.size} cl=${hostClassLoader.javaClass.name} caller=${caller.name} " +
+                        "path=$absolutePath",
+                )
+                return
+            } catch (e: Throwable) {
+                lastError = e
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: VMRuntime.nativeLoad(${args.size}arg) failed: ${e.message}",
+                )
+            }
+        }
+        throw IllegalStateException(
+            "cannot load native lib in host namespace: $absolutePath",
+            lastError,
+        )
+    }
+
+    /** 优先用宿主 APK 内的类作 caller，避免模块 Class 影响 linker 解析。 */
+    private fun hostCallerClass(hostClassLoader: ClassLoader): Class<*> {
+        for (name in arrayOf("android.app.Application", "android.content.Context")) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                return hostClassLoader.loadClass(name) as Class<*>
+            } catch (_: Throwable) {
+            }
+        }
+        return NativeLibLoader::class.java
     }
 
     private fun preferredAbi(): String {

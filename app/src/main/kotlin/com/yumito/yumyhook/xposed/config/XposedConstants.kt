@@ -12,9 +12,12 @@ object XposedConstants {
     const val TARGET_PACKAGE_TWITTER = "com.twitter.android"
     const val TARGET_PACKAGE_XYNER_TOOLS = "cn.xyner.tools"
 
+    const val TARGET_PACKAGE_PERSIE_ROOT = "at.persie0.root_detection_app"
+
     /** LSPosed 推荐作用域（与 res/values/arrays.xml、META-INF/xposed/scope.list 保持一致） */
     val RECOMMENDED_SCOPE_PACKAGES: List<String> = listOf(
         TARGET_PACKAGE_DEVICE,
+        TARGET_PACKAGE_PERSIE_ROOT,
         TARGET_PACKAGE_QQ,
         TARGET_PACKAGE_WECHAT,
         TARGET_PACKAGE_DINGTALK,
@@ -49,5 +52,5 @@ object XposedConstants {
     const val PREF_FEATURES_JSON = "spoof_features_json"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 75
+    const val HOOK_REV = 77
 }

@@ -52,17 +52,16 @@ object EnvStealthHook {
     }
 
     private class EnvMapSanitizer : XC_MethodHook() {
-        @Suppress("UNCHECKED_CAST")
         override fun afterHookedMethod(param: MethodHookParam) {
-            val map = param.result as? MutableMap<String, String> ?: return
-            for (key in map.keys.toList()) {
-                val sanitized = sanitizeEnvValue(key, map[key])
-                if (sanitized == null) {
-                    map.remove(key)
-                } else {
-                    map[key] = sanitized
+            val map = param.result as? Map<String, String> ?: return
+            val out = LinkedHashMap<String, String>(map.size)
+            for ((key, value) in map) {
+                val sanitized = sanitizeEnvValue(key, value)
+                if (sanitized != null) {
+                    out[key] = sanitized
                 }
             }
+            param.result = out
         }
     }
 }

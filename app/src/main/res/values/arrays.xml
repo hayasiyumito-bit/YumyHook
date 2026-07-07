@@ -3,6 +3,7 @@
     <!-- 与 XposedConstants.RECOMMENDED_SCOPE_PACKAGES 保持一致 -->
     <string-array name="xposed_scope">
         <item>com.android.device</item>
+        <item>at.persie0.root_detection_app</item>
         <item>com.tencent.mobileqq</item>
         <item>com.tencent.mm</item>
         <item>com.alibaba.android.rimet</item>
