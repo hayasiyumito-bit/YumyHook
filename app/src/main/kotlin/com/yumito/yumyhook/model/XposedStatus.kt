@@ -7,8 +7,10 @@ data class XposedStatus(
     val lsposedActive: Boolean,
     val lsposedVersionLabel: String,
     val moduleEnabled: Boolean,
-    val targetPackage: String,
+    val scopedApps: List<ScopedAppEntry>,
     val hookEnabled: Boolean,
     val frameworkScopeEnabled: Boolean,
+    val systemScopeEnabled: Boolean,
+    val riskySystemScope: Boolean,
     val stealthNeedsFrameworkScope: Boolean,
 )

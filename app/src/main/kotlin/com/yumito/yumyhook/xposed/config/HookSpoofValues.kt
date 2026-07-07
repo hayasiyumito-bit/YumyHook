@@ -1,6 +1,6 @@
 package com.yumito.yumyhook.xposed.config
 
-import com.yumito.yumyhook.xposed.channel.BuildSpoofGenerator
+import com.yumito.yumyhook.xposed.channel.build.BuildSpoofGenerator
 
 import com.yumito.yumyhook.model.HookFeatures
 import org.json.JSONObject

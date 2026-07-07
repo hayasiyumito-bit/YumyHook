@@ -6,7 +6,7 @@ import com.yumito.yumyhook.feature.session.HookSessionController
 import com.yumito.yumyhook.model.HookFeatures
 import com.yumito.yumyhook.model.ProfilesDocument
 import com.yumito.yumyhook.model.StoredProfile
-import com.yumito.yumyhook.xposed.channel.BuildSpoofGenerator
+import com.yumito.yumyhook.xposed.channel.build.BuildSpoofGenerator
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.SpoofConfigFile

@@ -8,14 +8,16 @@ object ProcFsPaths {
     private val PROC_MAPS = Regex("""^/proc/(?:self|\d+)/(?:task/\d+/)?maps$""")
     private val PROC_SMAPS = Regex("""^/proc/(?:self|\d+)/(?:task/\d+/)?smaps$""")
     private val PROC_STATUS = Regex("""^/proc/(?:self|\d+)/(?:task/\d+/)?status$""")
-    private val PROC_MOUNTINFO = Regex("""^/proc/(?:self|\d+)/mountinfo$""")
-    private val PROC_MOUNTS = Regex("""^/proc/(?:self|\d+)/mounts$""")
+    private val PROC_MOUNTINFO = Regex("""^/proc/(?:self|\d+)?/?mountinfo$""")
+    private val PROC_MOUNTS = Regex("""^/proc/(?:self|\d+)?/?mounts$""")
     private val PROC_MEM = Regex("""^/proc/(?:self|\d+)/mem$""")
 
     fun kind(path: String?): Kind? {
         if (path.isNullOrBlank()) return null
         val normalized = SensitivePathFilter.normalize(path)
         return when {
+            normalized == "/proc/mounts" -> Kind.MOUNTS
+            normalized == "/proc/mountinfo" -> Kind.MOUNTINFO
             PROC_MEM.matches(normalized) -> Kind.MEM
             normalized.contains("/map_files") -> Kind.MAPS
             PROC_MAPS.matches(normalized) -> Kind.MAPS

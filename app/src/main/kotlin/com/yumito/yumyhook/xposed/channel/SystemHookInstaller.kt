@@ -17,7 +17,7 @@ object SystemHookInstaller {
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
         HookConfig.refreshHookCache()
         HookFeatureConfig.refresh()
-        if (HookScope.isFrameworkProcess(lpparam.packageName)) {
+        if (HookScope.isFrameworkHookTarget(lpparam.packageName)) {
             de.robv.android.xposed.XposedBridge.log(
                 "${XposedConstants.TAG}: hooks rev=${XposedConstants.HOOK_REV} " +
                     "pkg=${lpparam.packageName} mode=framework-stealth-only " +

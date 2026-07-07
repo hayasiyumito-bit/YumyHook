@@ -1,11 +1,12 @@
 package com.yumito.yumyhook.xposed.channel.strategy
 
 import android.app.Application
-import com.yumito.yumyhook.xposed.channel.GetpropHook
+import com.yumito.yumyhook.xposed.channel.NativeLoadGuard
 import com.yumito.yumyhook.xposed.channel.HostShadowhookLoadGuard
 import com.yumito.yumyhook.xposed.channel.NativeBridge
-import com.yumito.yumyhook.xposed.channel.OsBuildHook
-import com.yumito.yumyhook.xposed.channel.SystemPropertiesHook
+import com.yumito.yumyhook.xposed.channel.build.OsBuildHook
+import com.yumito.yumyhook.xposed.channel.getprop.GetpropHook
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertiesHook
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
@@ -47,17 +48,22 @@ object ChannelInstallCoordinator {
             RegisterReceiverCompatHook.installIfNeeded()
             ChannelDiagLog.phase(pkg, InstallPhase.LOAD_PACKAGE, "registerReceiver compat")
         }
+        if (resolved.nativeActive && resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
+            NativeLoadGuard.install(lpparam)
+        }
         ensureChannelStubs(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
         if (resolved.applyBuildAtPhase(InstallPhase.LOAD_PACKAGE)) {
             SpoofRuntime.applyChannelsAtPhase("loadPackage", InstallPhase.LOAD_PACKAGE, resolved.fourChannelActive)
         }
-        if (resolved.strategy.stealthInstallPhase == InstallPhase.LOAD_PACKAGE) {
-            installStealth(lpparam, pkg, InstallPhase.LOAD_PACKAGE)
-        }
         if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
             ensureNativeEarly(lpparam, resolved)
         }
-        finalizeNativeStealth(lpparam)
+        if (resolved.strategy.stealthInstallPhase == InstallPhase.LOAD_PACKAGE) {
+            finalizeNativeStealth(lpparam, resolved)
+            installStealth(lpparam, pkg, InstallPhase.LOAD_PACKAGE)
+        } else {
+            finalizeNativeStealth(lpparam, resolved)
+        }
         ApplicationLifecycleScheduler.schedule(lpparam, resolved)
     }
 
@@ -78,7 +84,7 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
             ensureNative(lpparam, app, resolved)
         }
-        finalizeNativeStealth(lpparam)
+        finalizeNativeStealth(lpparam, resolved)
     }
 
     fun onDeferredWithoutApplication(
@@ -96,7 +102,7 @@ object ChannelInstallCoordinator {
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
             installStealth(lpparam, lpparam.packageName, InstallPhase.APPLICATION_ON_CREATE)
         }
-        finalizeNativeStealth(lpparam)
+        finalizeNativeStealth(lpparam, resolved)
     }
 
     fun onApplicationCreate(
@@ -122,11 +128,23 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
             ensureNativeDeferred(pkg, resolved)
         }
-        finalizeNativeStealth(lpparam)
+        finalizeNativeStealth(lpparam, resolved)
     }
 
-    private fun finalizeNativeStealth(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (NativeStealthBridge.isInstalled()) return
+    fun ensureStealthInstalled(lpparam: XC_LoadPackage.LoadPackageParam, phase: InstallPhase) {
+        installStealth(lpparam, lpparam.packageName, phase)
+        finalizeNativeStealth(lpparam, StrategyResolver.resolve(lpparam.packageName, HookFeatureConfig.current()))
+    }
+
+    private fun finalizeNativeStealth(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        resolved: ResolvedChannelStrategy,
+    ) {
+        if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED &&
+            !NativeBridge.isHooksInstalled()
+        ) {
+            return
+        }
         NativeStealthBridge.install(lpparam)
     }
 

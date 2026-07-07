@@ -1,4 +1,4 @@
-package com.yumito.yumyhook.xposed.channel
+package com.yumito.yumyhook.xposed.channel.build
 
 import android.app.Application
 import android.content.Context

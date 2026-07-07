@@ -1,10 +1,12 @@
 package com.yumito.yumyhook.xposed.channel
 
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.policy.NativeHookPolicy
+import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.runtime.ModulePathHolder
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
 
@@ -19,6 +21,9 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 object NativeBridge {
 
     private const val MAX_NATIVE_PROP_LEN = 91
+    private const val LOG = XposedConstants.NATIVE_PROP_TAG
+
+    private fun log(msg: String) = XposedBridge.log("$LOG: $msg")
 
     @Volatile
     private var hooksInstalled = false
@@ -43,6 +48,9 @@ object NativeBridge {
         return true
     }
 
+    private var lastDataDir: String? = null
+    private var lastClassLoader: ClassLoader? = null
+
     /** handleLoadPackage 即装 native；成功返回 true。 */
     fun installEarly(lpparam: XC_LoadPackage.LoadPackageParam): Boolean {
         val pkg = lpparam.packageName
@@ -51,12 +59,14 @@ object NativeBridge {
             return false
         }
         if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) {
-            XposedBridge.log("${XposedConstants.TAG}: native early skip policy pkg=$pkg")
+            log("early skip policy pkg=$pkg")
             return false
         }
         val dataDir = lpparam.appInfo.dataDir ?: return false
+        lastDataDir = dataDir
+        lastClassLoader = lpparam.classLoader
         if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader)) return false
-        installHooksIfNeeded(pkg, "early")
+        installHooksIfNeeded(pkg, "early", dataDir = dataDir, classLoader = lpparam.classLoader)
         if (!hooksInstalled) return false
         syncFromGate(HookConfig.valuesForHook(), pkg)
         return true
@@ -70,13 +80,15 @@ object NativeBridge {
             return
         }
         if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) {
-            XposedBridge.log("${XposedConstants.TAG}: native install skip policy pkg=$pkg")
+            log("install skip policy pkg=$pkg")
             deactivateNative(pkg)
             return
         }
         val dataDir = hostContext.applicationInfo.dataDir
+        lastDataDir = dataDir
+        lastClassLoader = hostContext.classLoader
         if (!ensureNativeLoaded(dataDir, pkg, hostContext.classLoader)) return
-        installHooksIfNeeded(pkg, "context")
+        installHooksIfNeeded(pkg, "context", dataDir = dataDir, classLoader = hostContext.classLoader)
         syncFromGate(HookConfig.valuesForHook(), pkg)
     }
 
@@ -102,9 +114,9 @@ object NativeBridge {
             val props = SystemPropertyMapper.allProperties(values)
                 .mapValues { (_, v) -> if (v.length > MAX_NATIVE_PROP_LEN) "" else v }
             nativeUpdateProperties(props.keys.toTypedArray(), props.values.toTypedArray())
-            XposedBridge.log("${XposedConstants.TAG}: native props synced count=${props.size} pkg=$pkg")
+            log("props synced count=${props.size} pkg=$pkg")
         } catch (e: Throwable) {
-            XposedBridge.log("${XposedConstants.TAG}: NativeBridge.sync failed: ${e.message}")
+            log("sync failed: ${e.message}")
         }
     }
 
@@ -113,7 +125,7 @@ object NativeBridge {
         try {
             nativeSetSpoofActive(false)
             nativeUpdateProperties(emptyArray(), emptyArray())
-            XposedBridge.log("${XposedConstants.TAG}: native spoof off pkg=$packageName")
+            log("spoof off pkg=$packageName")
         } catch (_: Throwable) {
         }
     }
@@ -134,7 +146,7 @@ object NativeBridge {
     ): Boolean {
         val apk = ModulePathHolder.moduleApkPath
         if (apk.isBlank()) {
-            XposedBridge.log("${XposedConstants.TAG}: native skip empty module apk path")
+            log("skip empty module apk path")
             return false
         }
         return NativeLibLoader.ensureLoaded(
@@ -150,21 +162,32 @@ object NativeBridge {
         packageName: String,
         stage: String,
         libcOnly: Boolean = false,
+        dataDir: String? = lastDataDir,
+        classLoader: ClassLoader? = lastClassLoader,
     ) {
-        if (hooksInstalled) return
+        if (hooksInstalled) {
+            NativeStealthBridge.retryAfterNativeEngine(packageName, dataDir, classLoader)
+            retryDeferredHooks(packageName)
+            return
+        }
         if (!NativeHookPolicy.shouldInstallNative(packageName, FourChannelGate.currentFeatures())) {
-            XposedBridge.log("${XposedConstants.TAG}: native property hook $stage=skip pkg=$packageName")
+            log("property hook $stage=skip pkg=$packageName")
             return
         }
         try {
             val ok = nativeInstallPropertyHook(libcOnly)
             hooksInstalled = ok
             val probe = if (ok) nativeProbeProperty("ro.product.model") else "n/a"
-            XposedBridge.log(
-                "${XposedConstants.TAG}: native property hook $stage=$ok pkg=$packageName probe_model=$probe stats=${nativeHookStats()}",
+            val libcProbe = if (ok) nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
+            log(
+                "rev=${XposedConstants.HOOK_REV} property hook $stage=$ok pkg=$packageName " +
+                    "probe_model=$probe libcutils_model=$libcProbe stats=${nativeHookStats()}",
             )
+            if (ok) {
+                NativeStealthBridge.retryAfterNativeEngine(packageName, dataDir, classLoader)
+            }
         } catch (e: Throwable) {
-            XposedBridge.log("${XposedConstants.TAG}: nativeInstallPropertyHook failed: ${e.message}")
+            log("nativeInstallPropertyHook failed: ${e.message}")
         }
     }
 
@@ -177,11 +200,10 @@ object NativeBridge {
         try {
             val ok = nativeRetryDeferredHooks()
             val probe = nativeProbeProperty("ro.product.model")
-            XposedBridge.log(
-                "${XposedConstants.TAG}: native deferred retry=$ok pkg=$packageName probe_model=$probe",
-            )
+            val libcProbe = nativeProbeLibcutilsProperty("ro.product.model")
+            log("deferred retry=$ok pkg=$packageName probe_model=$probe libcutils_model=$libcProbe")
         } catch (e: Throwable) {
-            XposedBridge.log("${XposedConstants.TAG}: nativeRetryDeferredHooks failed: ${e.message}")
+            log("nativeRetryDeferredHooks failed: ${e.message}")
         }
     }
 
@@ -196,6 +218,9 @@ object NativeBridge {
 
     @JvmStatic
     private external fun nativeProbeProperty(name: String): String
+
+    @JvmStatic
+    private external fun nativeProbeLibcutilsProperty(name: String): String
 
     @JvmStatic
     private external fun nativeHookStats(): String

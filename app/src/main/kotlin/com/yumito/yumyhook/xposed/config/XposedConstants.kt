@@ -23,9 +23,17 @@ object XposedConstants {
     )
 
     val HOOK_SCOPE_HINT: String = "LSPosed 作用域内所有 App"
-    val FRAMEWORK_SCOPE_PACKAGES: List<String> = listOf("android", "system")
+    /** 仅 android（system_server）；勿勾 system，会崩溃。 */
+    const val FRAMEWORK_HOOK_PACKAGE = "android"
+    val FRAMEWORK_SCOPE_PACKAGES: List<String> = listOf(FRAMEWORK_HOOK_PACKAGE, "system")
+    /** 不可 am force-stop（系统框架 / system 作用域条目）。 */
+    val FORCE_STOP_EXCLUDED_PACKAGES: Set<String> = FRAMEWORK_SCOPE_PACKAGES.toSet()
     const val FRAMEWORK_SCOPE_LABEL = "Android 系统框架"
     const val TAG = "YumyHook"
+    /** logcat 专用过滤：`adb logcat -s YH-NATIVE-PROP` */
+    const val NATIVE_PROP_TAG = "YH-NATIVE-PROP"
+    /** proc/access stealth：`adb logcat -s YH-NATIVE-STEALTH` */
+    const val NATIVE_STEALTH_TAG = "YH-NATIVE-STEALTH"
     const val XPOSED_API_VERSION = 82
 
     const val PREFS_NAME = "hook_config"
@@ -41,5 +49,5 @@ object XposedConstants {
     const val PREF_FEATURES_JSON = "spoof_features_json"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 57
+    const val HOOK_REV = 69
 }

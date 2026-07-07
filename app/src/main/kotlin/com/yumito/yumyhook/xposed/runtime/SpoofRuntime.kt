@@ -1,8 +1,8 @@
 package com.yumito.yumyhook.xposed.runtime
 
 import com.yumito.yumyhook.xposed.channel.NativeBridge
-import com.yumito.yumyhook.xposed.channel.OsBuildPatcher
-import com.yumito.yumyhook.xposed.channel.SystemPropertyMapper
+import com.yumito.yumyhook.xposed.channel.build.OsBuildPatcher
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.channel.strategy.BuildApplyPhaseGate
 import com.yumito.yumyhook.xposed.channel.strategy.InstallPhase
 import com.yumito.yumyhook.xposed.config.HookConfig

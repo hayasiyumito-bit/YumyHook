@@ -1,5 +1,7 @@
 package com.yumito.yumyhook.xposed.stealth.hide
+
 import com.yumito.yumyhook.xposed.config.XposedConstants
+import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -40,6 +42,7 @@ object SensitivePathStealthHook {
                     name,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (HookReentryGuard.isFileBypass()) return
                             val path = pathOf(param.thisObject as File)
                             if (SensitivePathFilter.isHidden(path) || ProcFsPaths.isDenied(path)) {
                                 param.result = false
@@ -61,6 +64,7 @@ object SensitivePathStealthHook {
                 pathArg,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (HookReentryGuard.isFileBypass()) return
                         val path = when (val arg = param.args[0]) {
                             is String -> arg
                             is File -> arg.absolutePath

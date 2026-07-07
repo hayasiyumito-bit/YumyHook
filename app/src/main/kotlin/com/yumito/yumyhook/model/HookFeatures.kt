@@ -16,6 +16,10 @@ data class HookFeatures(
     val blockLanScan: Boolean = true,
     val hideLsposed: Boolean = true,
     val hideRoot: Boolean = true,
+    /** 系统框架（android）作用域：仅 Root 启动属性伪装，不装四通道 / File / maps */
+    val frameworkHideRoot: Boolean = true,
+    /** 系统框架（android）作用域：仅 PMS 单包藏 Magisk / 模块（部分 ROM 仍可能不稳，默认关） */
+    val frameworkHideMagisk: Boolean = false,
     val hideAirplaneMode: Boolean = true,
     val hideProxy: Boolean = true,
     val hideWifiNetworks: Boolean = true,
@@ -85,6 +89,8 @@ data class HookFeatures(
         "blockLanScan" -> copy(blockLanScan = enabled)
         "hideLsposed" -> copy(hideLsposed = enabled)
         "hideRoot" -> copy(hideRoot = enabled)
+        "frameworkHideRoot" -> copy(frameworkHideRoot = enabled)
+        "frameworkHideMagisk" -> copy(frameworkHideMagisk = enabled)
         "hideAirplaneMode" -> copy(hideAirplaneMode = enabled)
         "hideProxy" -> copy(hideProxy = enabled)
         "hideWifiNetworks" -> copy(hideWifiNetworks = enabled)
@@ -110,6 +116,8 @@ data class HookFeatures(
         "blockLanScan" -> blockLanScan
         "hideLsposed" -> hideLsposed
         "hideRoot" -> hideRoot
+        "frameworkHideRoot" -> frameworkHideRoot
+        "frameworkHideMagisk" -> frameworkHideMagisk
         "hideAirplaneMode" -> hideAirplaneMode
         "hideProxy" -> hideProxy
         "hideWifiNetworks" -> hideWifiNetworks
@@ -142,6 +150,8 @@ data class HookFeatures(
             put(KEY_BLOCK_LAN, n.blockLanScan)
             put(KEY_HIDE_LSPOSED, n.hideLsposed)
             put(KEY_HIDE_ROOT, n.hideRoot)
+            put(KEY_FRAMEWORK_HIDE_ROOT, n.frameworkHideRoot)
+            put(KEY_FRAMEWORK_HIDE_MAGISK, n.frameworkHideMagisk)
             put(KEY_HIDE_AIRPLANE, n.hideAirplaneMode)
             put(KEY_HIDE_PROXY, n.hideProxy)
             put(KEY_HIDE_WIFI_NET, n.hideWifiNetworks)
@@ -172,6 +182,8 @@ data class HookFeatures(
         private const val KEY_BLOCK_LAN = "blockLanScan"
         private const val KEY_HIDE_LSPOSED = "hideLsposed"
         private const val KEY_HIDE_ROOT = "hideRoot"
+        private const val KEY_FRAMEWORK_HIDE_ROOT = "frameworkHideRoot"
+        private const val KEY_FRAMEWORK_HIDE_MAGISK = "frameworkHideMagisk"
         private const val KEY_HIDE_AIRPLANE = "hideAirplaneMode"
         private const val KEY_HIDE_PROXY = "hideProxy"
         private const val KEY_HIDE_WIFI_NET = "hideWifiNetworks"
@@ -215,6 +227,8 @@ data class HookFeatures(
                 blockLanScan = obj.optBoolean(KEY_BLOCK_LAN, DEFAULT.blockLanScan),
                 hideLsposed = obj.optBoolean(KEY_HIDE_LSPOSED, DEFAULT.hideLsposed),
                 hideRoot = obj.optBoolean(KEY_HIDE_ROOT, DEFAULT.hideRoot),
+                frameworkHideRoot = obj.optBoolean(KEY_FRAMEWORK_HIDE_ROOT, DEFAULT.frameworkHideRoot),
+                frameworkHideMagisk = obj.optBoolean(KEY_FRAMEWORK_HIDE_MAGISK, DEFAULT.frameworkHideMagisk),
                 hideAirplaneMode = obj.optBoolean(KEY_HIDE_AIRPLANE, DEFAULT.hideAirplaneMode),
                 hideProxy = obj.optBoolean(KEY_HIDE_PROXY, DEFAULT.hideProxy),
                 hideWifiNetworks = obj.optBoolean(KEY_HIDE_WIFI_NET, DEFAULT.hideWifiNetworks),

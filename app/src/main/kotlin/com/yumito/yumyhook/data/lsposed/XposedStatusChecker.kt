@@ -2,6 +2,7 @@ package com.yumito.yumyhook.data.lsposed
 
 import android.content.Context
 import com.yumito.yumyhook.data.profile.HookProfilesStore
+import com.yumito.yumyhook.model.ScopedAppEntry
 import com.yumito.yumyhook.model.XposedStatus
 import com.yumito.yumyhook.xposed.runtime.ModuleRuntimeState
 import com.yumito.yumyhook.xposed.config.XposedConstants
@@ -62,10 +63,15 @@ object XposedStatusChecker {
         } else {
             rootState?.scopedPackages.orEmpty()
         }
-        val scopeHint = buildScopeHint(context, scopedPackages)
+        val scopedApps = buildScopedApps(context, scopedPackages)
         val frameworkScopeEnabled = LsposedScopeReader.isFrameworkScoped(scopedPackages)
+        val systemScopeEnabled = LsposedScopeReader.hasSystemScopeEntry(scopedPackages)
+        val riskySystemScope = LsposedScopeReader.hasRiskySystemScope(scopedPackages)
         val features = HookProfilesStore.loadFeatures(context)
-        val stealthNeedsFrameworkScope = features.hideRoot || features.hideLsposed
+        val stealthNeedsFrameworkScope = features.frameworkHideRoot ||
+            features.frameworkHideMagisk ||
+            features.hideRoot ||
+            features.hideLsposed
 
         return XposedStatus(
             frameworkActive = frameworkActive,
@@ -73,19 +79,27 @@ object XposedStatusChecker {
             lsposedActive = lsposedActive,
             lsposedVersionLabel = lsposedVersionLabel,
             moduleEnabled = moduleEnabled,
-            targetPackage = scopeHint,
+            scopedApps = scopedApps,
             hookEnabled = HookProfilesStore.isHookEnabled(context),
             frameworkScopeEnabled = frameworkScopeEnabled,
+            systemScopeEnabled = systemScopeEnabled,
+            riskySystemScope = riskySystemScope,
             stealthNeedsFrameworkScope = stealthNeedsFrameworkScope,
         )
     }
 
-    private fun buildScopeHint(context: Context, scopedPackages: List<String>): String {
-        if (scopedPackages.isEmpty()) return XposedConstants.HOOK_SCOPE_HINT
-        val labels = ScopeLabelResolver.labels(context, scopedPackages)
-        val preview = labels.take(6).joinToString()
-        val suffix = if (labels.size > 6) " 等${labels.size}个" else ""
-        return "LSPosed 作用域：$preview$suffix"
+    private fun buildScopedApps(context: Context, scopedPackages: List<String>): List<ScopedAppEntry> {
+        if (scopedPackages.isEmpty()) return emptyList()
+        return scopedPackages
+            .filter { it !in XposedConstants.FRAMEWORK_SCOPE_PACKAGES }
+            .distinct()
+            .sorted()
+            .map { pkg ->
+                ScopedAppEntry(
+                    label = ScopeLabelResolver.label(context, pkg),
+                    packageName = pkg,
+                )
+            }
     }
 
     private fun isHookedInCurrentProcess(): Boolean {

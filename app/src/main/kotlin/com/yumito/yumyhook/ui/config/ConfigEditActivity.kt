@@ -131,8 +131,10 @@ class ConfigEditActivity : AppCompatActivity() {
             ConfigDebugLog.logSave(this, "地理位置", fields)
             viewModel.saveLocationFields(fields)
         }
+        binding.btnRandomizeBuild.setOnClickListener { viewModel.randomizeBuild() }
+        binding.btnRandomizeSim.setOnClickListener { viewModel.randomizeSim() }
+        binding.btnRandomizeDeviceIds.setOnClickListener { viewModel.randomizeDeviceIds() }
         binding.btnRandomizeLocation.setOnClickListener { viewModel.randomizeLocation() }
-        binding.btnRandomizeAll.setOnClickListener { viewModel.randomizeAll() }
 
         viewModel.featureRows.observe(this) { rows -> featureAdapter.submit(rows) }
         viewModel.experimentalRows.observe(this) { rows -> experimentalAdapter.submit(rows) }

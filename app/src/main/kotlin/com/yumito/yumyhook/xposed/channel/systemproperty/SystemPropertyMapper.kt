@@ -1,4 +1,4 @@
-package com.yumito.yumyhook.xposed.channel
+package com.yumito.yumyhook.xposed.channel.systemproperty
 
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 
@@ -60,7 +60,11 @@ object SystemPropertyMapper {
     private val SECURITY_PROBE_PROPS: Map<String, String> = mapOf(
         "ro.secure" to "1",
         "ro.debuggable" to "0",
+        "ro.build.tags" to "release-keys",
+        "ro.build.type" to "user",
         "ro.boot.verifiedbootstate" to "green",
+        "ro.boot.vbmeta.device_state" to "locked",
+        "ro.boot.flash.locked" to "1",
     )
 
     private val MAPPED_PROP_KEYS: Set<String> by lazy {

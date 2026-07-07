@@ -1,5 +1,6 @@
-package com.yumito.yumyhook.xposed.channel
+package com.yumito.yumyhook.xposed.channel.build
 
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 

@@ -14,6 +14,8 @@ object StealthConstants {
         "io.github.huskydg.magisk",
         "io.github.vvb2060.magisk",
         "me.weishu.kernelsu",
+        "me.bmax.apatch",
+        "me.bmax.apatchmanager",
         "com.omarea.vtools",
     )
 
@@ -56,7 +58,11 @@ object StealthConstants {
         "pine",
         "dobby",
         "magisk",
+        "magiskpolicy",
         "kernelsu",
+        "ksu",
+        "ksud",
+        "apatch",
         "supersu",
         "busybox",
     )
@@ -82,6 +88,7 @@ object StealthConstants {
         "/dev/.magisk",
         "/cache/magisk",
         "/data/adb/",
+        "/debug_ramdisk/",
     )
 
     /** CheckEmu HOOK_FRAMEWORK_FILES + SU_PATHS + Magisk — File.exists() 探测。 */
@@ -89,6 +96,8 @@ object StealthConstants {
         "/data/local/tmp/frida-server",
         "/data/local/tmp/re.frida.server",
         "/data/local/tmp/frida-gadget.so",
+        "/debug_ramdisk/magisk",
+        "/debug_ramdisk/.magisk",
         "/system/bin/su",
         "/system/xbin/su",
         "/sbin/su",
@@ -111,7 +120,8 @@ object StealthConstants {
         "/sbin/.magisk",
         "/dev/.magisk",
         "/cache/magisk",
-        "/data/adb/lspd",
+        "/data/adb/ap",
+        "/data/adb/ksu",
         "/data/adb/modules/zygisk_lsposed",
         "/data/adb/modules/riru_lsposed",
         "/data/misc/riru",

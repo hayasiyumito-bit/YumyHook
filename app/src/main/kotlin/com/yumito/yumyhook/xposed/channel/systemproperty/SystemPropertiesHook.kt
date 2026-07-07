@@ -1,4 +1,4 @@
-package com.yumito.yumyhook.xposed.channel
+package com.yumito.yumyhook.xposed.channel.systemproperty
 
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -7,7 +7,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
-import com.yumito.yumyhook.xposed.channel.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
 /** Hook android.os.SystemProperties.get* — 仅用内存缓存，防重入。 */

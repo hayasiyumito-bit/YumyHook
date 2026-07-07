@@ -36,6 +36,16 @@ object ApplicationLifecycleScheduler {
                 "attach",
                 android.content.Context::class.java,
                 object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val resolved = StrategyResolver.resolve(
+                            lpparam.packageName,
+                            HookFeatureConfig.refreshIfStale(),
+                        )
+                        if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ATTACH) {
+                            ChannelInstallCoordinator.ensureStealthInstalled(lpparam, InstallPhase.APPLICATION_ATTACH)
+                        }
+                    }
+
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val app = param.thisObject as Application
                         val resolved = StrategyResolver.resolve(
@@ -57,6 +67,16 @@ object ApplicationLifecycleScheduler {
                 Application::class.java,
                 "onCreate",
                 object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val resolved = StrategyResolver.resolve(
+                            lpparam.packageName,
+                            HookFeatureConfig.refreshIfStale(),
+                        )
+                        if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
+                            ChannelInstallCoordinator.ensureStealthInstalled(lpparam, InstallPhase.APPLICATION_ON_CREATE)
+                        }
+                    }
+
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val app = param.thisObject as Application
                         val resolved = StrategyResolver.resolve(

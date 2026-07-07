@@ -56,6 +56,7 @@ object HookSessionController {
 
         val packages = LsposedScopeReader.readScopedPackages(context)
             .filter { it != XposedConstants.MODULE_PACKAGE }
+            .filter { it !in XposedConstants.FORCE_STOP_EXCLUDED_PACKAGES }
             .let { scoped ->
                 if (onlyPackages == null) scoped
                 else scoped.filter { it in onlyPackages }

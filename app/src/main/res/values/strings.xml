@@ -10,6 +10,8 @@
     <string name="xposed_module_enabled">模块状态：已在 LSPosed 中启用</string>
     <string name="xposed_module_disabled">模块状态：未启用（请在 LSPosed 中勾选本模块）</string>
     <string name="xposed_target_package">Hook 范围：%1$s</string>
+    <string name="xposed_scope_title">App 作用域</string>
+    <string name="xposed_scope_empty">未读取到作用域 App（需 Root 读 LSPosed 配置，或点刷新）</string>
     <string name="xposed_hook_enabled">系统伪装：已开启</string>
     <string name="xposed_hook_disabled">系统伪装：已关闭</string>
     <string name="hook_master_switch_title">开启 Hook 伪装</string>
@@ -29,7 +31,9 @@
     <string name="config_edit_title">编辑配置</string>
     <string name="config_name_hint">配置名称</string>
     <string name="privacy_settings_title">隐私设置</string>
-    <string name="randomize_all">随机全部</string>
+    <string name="randomize_build">随机设备</string>
+    <string name="randomize_sim">随机 SIM</string>
+    <string name="randomize_device_ids">随机标识</string>
     <string name="build_fields_title">设备 Build 参数</string>
     <string name="sim_fields_title">SIM 卡</string>
     <string name="device_ids_fields_title">设备标识</string>
@@ -64,8 +68,17 @@
     <string name="incompatible_app_twitter">X（Twitter） · com.twitter.android</string>
     <string name="incompatible_app_twitter_detail">内置 libpairipcore 完整性库，勾选作用域后常见 SIGSEGV 闪退。请从 LSPosed 作用域移除 Twitter，改用其他 App 验证伪装效果。</string>
 
-    <string name="framework_scope_title">建议勾选系统框架</string>
-    <string name="framework_scope_hint">开启「隐藏 Root / LSPosed」时，请在 LSPosed 作用域额外勾选 Android 系统框架（android）。框架进程内仅安装藏包、Root/Magisk 属性与 shell 探测拦截；不装 Native / 四通道 Build 伪装，避免 system_server 崩溃。</string>
-    <string name="framework_scope_enabled">系统框架作用域：已勾选</string>
-    <string name="framework_scope_missing">系统框架作用域：未勾选（藏包与跨进程 Root 检测可能失效）</string>
+    <string name="framework_scope_title">系统框架作用域（与 App 分离）</string>
+    <string name="framework_scope_hint">仅勾选 Android 系统框架（android）。勿勾「system」— 会致系统崩溃。下方开关只作用于 system_server，不装四通道 / Native / maps。</string>
+    <string name="framework_scope_android_enabled">android（system_server）：已勾选</string>
+    <string name="framework_scope_android_missing">android（system_server）：未勾选</string>
+    <string name="framework_scope_system_enabled">system：已勾选（无效，请取消）</string>
+    <string name="framework_scope_system_missing">system：未勾选</string>
+    <string name="framework_scope_system_warning">已勾选 system：请取消！仅 android 有效，system 会导致崩溃</string>
+    <string name="framework_hide_root_switch">框架：隐藏 Root 启动属性</string>
+    <string name="framework_hide_magisk_switch">框架：隐藏 Magisk 包查询（实验，易崩）</string>
+    <string name="framework_root_enabled_toast">已开启框架 Root 属性伪装（system_server 重启后生效，不会强停 android）</string>
+    <string name="framework_root_disabled_toast">已关闭框架 Root 属性伪装</string>
+    <string name="framework_magisk_enabled_toast">已开启框架 Magisk 藏包（实验；system_server 重启后生效）</string>
+    <string name="framework_magisk_disabled_toast">已关闭框架 Magisk 藏包</string>
 </resources>

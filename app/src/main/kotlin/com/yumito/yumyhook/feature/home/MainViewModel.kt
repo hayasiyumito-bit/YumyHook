@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import com.yumito.yumyhook.R
 import com.yumito.yumyhook.model.SpoofUiState
 import com.yumito.yumyhook.model.XposedStatus
 import com.yumito.yumyhook.data.publish.HookConfigPublisher
@@ -33,6 +34,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hookBusy = MutableLiveData(false)
     val hookBusy: LiveData<Boolean> = _hookBusy
 
+    private val _frameworkHideRoot = MutableLiveData(true)
+    val frameworkHideRoot: LiveData<Boolean> = _frameworkHideRoot
+
+    private val _frameworkHideMagisk = MutableLiveData(true)
+    val frameworkHideMagisk: LiveData<Boolean> = _frameworkHideMagisk
+
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var coldStartForceStopDone = false
@@ -55,6 +62,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             mainHandler.post {
                 _hookEnabled.value = hookState
+                _frameworkHideRoot.value = features.frameworkHideRoot
+                _frameworkHideMagisk.value = features.frameworkHideMagisk
                 _status.value = status
                 _spoofState.value = SpoofUiState(
                     profileLabel = features.configName,
@@ -77,6 +86,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val status = XposedStatusChecker.check(app, useRoot)
             mainHandler.post {
                 _hookEnabled.value = hookState
+                _frameworkHideRoot.value = features.frameworkHideRoot
+                _frameworkHideMagisk.value = features.frameworkHideMagisk
                 _status.value = status
                 _spoofState.value = SpoofUiState(
                     profileLabel = features.configName,
@@ -95,6 +106,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val features = HookProfilesStore.loadFeatures(app)
         val summary = spoof.fullParametersSummary(features)
         _hookEnabled.value = HookSessionController.isEnabled(app)
+        _frameworkHideRoot.value = features.frameworkHideRoot
+        _frameworkHideMagisk.value = features.frameworkHideMagisk
         _spoofState.value = SpoofUiState(
             profileLabel = features.configName,
             buildSummary = spoof.buildSummary(),
@@ -117,6 +130,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 publishSessionResult(result)
             }
         }
+    }
+
+    fun setFrameworkHideRoot(enabled: Boolean) {
+        updateFrameworkStealth("frameworkHideRoot", enabled)
+    }
+
+    fun setFrameworkHideMagisk(enabled: Boolean) {
+        updateFrameworkStealth("frameworkHideMagisk", enabled)
+    }
+
+    private fun updateFrameworkStealth(key: String, enabled: Boolean) {
+        val app = getApplication<Application>()
+        if (!HookProfilesStore.setFeature(app, key, enabled)) return
+        val features = HookProfilesStore.loadFeatures(app)
+        _frameworkHideRoot.value = features.frameworkHideRoot
+        _frameworkHideMagisk.value = features.frameworkHideMagisk
+        _sessionMessage.value = app.getString(
+            if (key == "frameworkHideRoot") {
+                if (enabled) R.string.framework_root_enabled_toast else R.string.framework_root_disabled_toast
+            } else {
+                if (enabled) R.string.framework_magisk_enabled_toast else R.string.framework_magisk_disabled_toast
+            },
+        )
     }
 
     fun consumeSessionMessage() {

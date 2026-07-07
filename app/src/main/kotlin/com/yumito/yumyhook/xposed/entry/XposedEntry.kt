@@ -13,6 +13,7 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.yumito.yumyhook.xposed.channel.SystemHookInstaller
+import com.yumito.yumyhook.xposed.policy.HookScope
 import com.yumito.yumyhook.data.profile.HookProfilesStore
 import com.yumito.yumyhook.ProjectAttribution
 
@@ -24,6 +25,13 @@ class XposedEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
             ProjectAttribution.emitXposedAttribution(XposedBridge::log)
             XposedBridge.log("${XposedConstants.TAG}: 模块自身已加载")
             installModuleSelfHooks()
+            return
+        }
+
+        if (lpparam.packageName == HookScope.LSPOSED_SYSTEM_SCOPE_PACKAGE) {
+            XposedBridge.log(
+                "${XposedConstants.TAG}: skip system scope (勾选 android 即可，system 会导致崩溃)",
+            )
             return
         }
 

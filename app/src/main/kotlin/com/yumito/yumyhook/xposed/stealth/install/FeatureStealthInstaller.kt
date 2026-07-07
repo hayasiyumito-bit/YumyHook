@@ -7,7 +7,7 @@ import com.yumito.yumyhook.xposed.stealth.bluetooth.BluetoothStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.UptimeStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.WebSettingsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.EnvStealthHook
-import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
+import com.yumito.yumyhook.xposed.stealth.hide.NativeApiStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.PackageHideStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.ProcMapsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.SensitivePathStealthHook
@@ -39,6 +39,7 @@ object FeatureStealthInstaller {
         if (f.hideLsposed) {
             ProcMapsStealthHook.install()
             SensitivePathStealthHook.install()
+            NativeApiStealthHook.install()
             EnvStealthHook.install()
             PackageHideStealthHook.install(lpparam)
             XposedFingerprintStealthHook.install()
@@ -46,11 +47,11 @@ object FeatureStealthInstaller {
         }
         if (f.hideRoot) {
             SensitivePathStealthHook.install()
+            NativeApiStealthHook.install()
             RootPropertyStealthHook.install()
             RootBuildStealthHook.install()
             PackageHideStealthHook.install(lpparam)
             ShellProbeStealthHook.install()
-            NativeStealthBridge.install(lpparam)
         }
         if (f.hideDeveloperOptions || f.hideRoot) {
             AdbStealthHook.install(lpparam)

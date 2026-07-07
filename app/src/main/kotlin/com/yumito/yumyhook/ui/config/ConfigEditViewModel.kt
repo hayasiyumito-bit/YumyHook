@@ -11,7 +11,7 @@ import com.yumito.yumyhook.data.profile.HookProfile
 import com.yumito.yumyhook.data.profile.HookProfilesStore
 import com.yumito.yumyhook.data.lsposed.LsposedScopeReader
 import com.yumito.yumyhook.data.lsposed.ScopeLabelResolver
-import com.yumito.yumyhook.xposed.channel.BuildSpoofGenerator
+import com.yumito.yumyhook.xposed.channel.build.BuildSpoofGenerator
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
 class ConfigEditViewModel(application: Application) : AndroidViewModel(application) {
@@ -174,19 +174,29 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         _saveMessage.value = "地理位置已保存"
     }
 
+    fun randomizeBuild() {
+        val result = BuildSpoofGenerator.randomize()
+        HookProfilesStore.saveBuildFields(getApplication(), result.values.buildFields)
+        applyProfile(HookProfilesStore.load(getApplication()))
+        _saveMessage.value = "已随机生成设备参数"
+    }
+
+    fun randomizeSim() {
+        val result = BuildSpoofGenerator.randomize()
+        val fields = result.values.idsFields.filterKeys { it in simFieldKeys }
+        saveSimFields(fields)
+    }
+
+    fun randomizeDeviceIds() {
+        val result = BuildSpoofGenerator.randomize()
+        val fields = result.values.idsFields.filterKeys { it in deviceIdFieldKeys }
+        saveDeviceIdFields(fields)
+    }
+
     fun randomizeLocation() {
         HookProfilesStore.randomizeLocation(getApplication())
         applyProfile(HookProfilesStore.load(getApplication()))
         _saveMessage.value = "已随机生成地理位置"
-    }
-
-    fun randomizeAll() {
-        val result = BuildSpoofGenerator.randomize()
-        val current = HookProfilesStore.load(getApplication())
-        val updated = current.copy(values = result.values)
-        HookProfilesStore.save(getApplication(), updated)
-        applyProfile(updated)
-        _saveMessage.value = "已随机生成设备参数"
     }
 
     fun consumeSaveMessage() {
@@ -216,6 +226,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         val app = getApplication<Application>()
         val packages = LsposedScopeReader.readScopedPackages(app)
             .filter { it != XposedConstants.MODULE_PACKAGE }
+            .filter { it !in XposedConstants.FRAMEWORK_SCOPE_PACKAGES }
             .distinct()
             .sorted()
         _scopeChannelRows.value = packages.map { pkg ->

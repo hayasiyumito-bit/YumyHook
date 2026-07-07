@@ -1,13 +1,13 @@
-package com.yumito.yumyhook.xposed.channel
+package com.yumito.yumyhook.xposed.channel.getprop
 
-import com.yumito.yumyhook.xposed.config.HookSpoofValues
-
-import com.yumito.yumyhook.xposed.policy.FourChannelGate
-import com.yumito.yumyhook.xposed.channel.GetpropMerger
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
-import com.yumito.yumyhook.xposed.channel.SystemPropertyMapper
+import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
+import com.yumito.yumyhook.xposed.policy.FourChannelGate
+import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
+import com.yumito.yumyhook.xposed.stealth.common.StealthConstants
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -54,10 +54,9 @@ object GetpropHook {
         return arrayOf("/system/bin/sh", "-c", "printf '%s' '$escaped'")
     }
 
-    private fun spoofOutput(key: String?, values: com.yumito.yumyhook.xposed.config.HookSpoofValues): String {
+    private fun spoofOutput(key: String?, values: HookSpoofValues): String {
         if (key.isNullOrBlank()) {
-            val real = runRealGetprop()
-            return GetpropMerger.merge(real, values)
+            return GetpropMerger.merge(runRealGetprop(), values)
         }
         return SystemPropertyMapper.mapProperty(key, values) ?: ""
     }
@@ -73,6 +72,19 @@ object GetpropHook {
         }
     }
 
+    private fun applySpoofedGetprop(key: String?, apply: (Array<String>) -> Unit): Boolean {
+        if (key != null && HookFeatureConfig.current().hideRoot) {
+            StealthConstants.ROOT_SPOOF_PROPERTIES[key]?.let { spoofed ->
+                apply(shellCommand(spoofed))
+                return true
+            }
+        }
+        if (key != null && !SystemPropertyMapper.hasMapping(key)) return false
+        val values = HookConfig.refreshHookCacheIfStale()
+        apply(shellCommand(spoofOutput(key, values)))
+        return true
+    }
+
     private class GetpropInterceptor : XC_MethodHook() {
         override fun beforeHookedMethod(param: MethodHookParam) {
             if (HookReentryGuard.isGetpropBypass()) return
@@ -80,11 +92,7 @@ object GetpropHook {
             try {
                 if (!FourChannelGate.isActive()) return
                 val parsed = parseExecArgs(param.args) ?: return
-                val key = parsed.second
-                if (key != null && !SystemPropertyMapper.hasMapping(key)) return
-                val values = HookConfig.refreshHookCacheIfStale()
-                val output = spoofOutput(key, values)
-                param.result = Runtime.getRuntime().exec(shellCommand(output))
+                if (!applySpoofedGetprop(parsed.second) { param.result = Runtime.getRuntime().exec(it) }) return
             } finally {
                 HookReentryGuard.exit()
             }
@@ -99,11 +107,7 @@ object GetpropHook {
                 if (!FourChannelGate.isActive()) return
                 val builder = param.thisObject as ProcessBuilder
                 val parsed = parseCommandParts(builder.command()) ?: return
-                val key = parsed.second
-                if (key != null && !SystemPropertyMapper.hasMapping(key)) return
-                val values = HookConfig.refreshHookCacheIfStale()
-                val output = spoofOutput(key, values)
-                builder.command(*shellCommand(output))
+                if (!applySpoofedGetprop(parsed.second) { builder.command(*it) }) return
             } finally {
                 HookReentryGuard.exit()
             }

@@ -8,7 +8,7 @@ object StealthPackageFilter {
 
     fun hiddenPackages(): Set<String> {
         val out = StealthConstants.HIDDEN_PACKAGES.toMutableSet()
-        if (HookFeatureConfig.refreshIfStale().hideRoot) {
+        if (HookFeatureConfig.current().hideRoot) {
             out.addAll(StealthConstants.HIDDEN_MAGISK_PACKAGES)
         }
         return out

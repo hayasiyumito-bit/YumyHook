@@ -13,7 +13,7 @@ object SensitivePathFilter {
         if (StealthConstants.HIDDEN_PROBE_PREFIXES.any { prefix -> normalized.startsWith(prefix) }) {
             return true
         }
-        if (HookFeatureConfig.refreshIfStale().hideRoot) {
+        if (HookFeatureConfig.current().hideRoot) {
             if (StealthConstants.HIDDEN_ROOT_PREFIXES.any { prefix -> normalized.startsWith(prefix) }) {
                 return true
             }
@@ -28,7 +28,11 @@ object SensitivePathFilter {
             lower.contains("/magisk") ||
             lower.endsWith("/busybox") ||
             lower.contains("supersu") ||
-            lower.contains("kernelsu")
+            lower.contains("kernelsu") ||
+            lower.contains("/ksu") ||
+            lower.endsWith("/ksu") ||
+            lower.contains("apatch") ||
+            lower.contains("ksud")
     }
 
     fun normalize(path: String): String {

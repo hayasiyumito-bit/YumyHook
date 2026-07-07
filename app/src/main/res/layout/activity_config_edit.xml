@@ -99,28 +99,13 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp" />
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/privacy_settings_title"
-                        android:textAppearance="?attr/textAppearanceTitleMedium"
-                        android:textStyle="bold" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_randomize_all"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/randomize_all" />
-                </LinearLayout>
+                    android:text="@string/privacy_settings_title"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textStyle="bold" />
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/recycler_features"
@@ -217,12 +202,29 @@
                     android:layout_marginTop="8dp"
                     android:orientation="vertical" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_save_device"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="@string/save_device_params" />
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_save_device"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/save_device_params" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_randomize_build"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/randomize_build" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
@@ -243,13 +245,29 @@
                     android:layout_marginTop="8dp"
                     android:orientation="vertical" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_save_sim"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="@string/save_sim_params" />
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_save_sim"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/save_sim_params" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_randomize_sim"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/randomize_sim" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
@@ -270,12 +288,29 @@
                     android:layout_marginTop="8dp"
                     android:orientation="vertical" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_save_device_ids"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="@string/save_device_ids_params" />
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_save_device_ids"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/save_device_ids_params" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_randomize_device_ids"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/randomize_device_ids" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"

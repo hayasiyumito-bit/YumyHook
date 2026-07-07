@@ -70,8 +70,9 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:text="@{viewModel.status.hookEnabled ? @string/xposed_hook_enabled : @string/xposed_hook_disabled}"
+                            android:text="@{viewModel.hookEnabled ? @string/xposed_hook_enabled : @string/xposed_hook_disabled}"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="@{viewModel.hookEnabled ? @android:color/holo_green_dark : @android:color/holo_red_dark}"
                             tools:text="系统伪装：已开启" />
 
                         <TextView
@@ -139,12 +140,32 @@
                             tools:text="模块状态：已启用" />
 
                         <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/xposed_scope_title"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textStyle="bold" />
+
+                        <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="@{@string/xposed_target_package(viewModel.status.targetPackage)}"
+                            android:text="@string/xposed_scope_empty"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            tools:text="Hook 范围" />
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:visibility="@{viewModel.status.scopedApps.empty ? View.VISIBLE : View.GONE}"
+                            tools:visibility="gone" />
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/rv_scope_apps"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:nestedScrollingEnabled="false"
+                            android:visibility="@{viewModel.status.scopedApps.empty ? View.GONE : View.VISIBLE}"
+                            tools:itemCount="3"
+                            tools:listitem="@layout/item_scope_app" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_refresh"
@@ -191,11 +212,46 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/framework_scope_system_warning"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="@android:color/holo_red_dark"
+                            android:visibility="@{viewModel.status.riskySystemScope ? View.VISIBLE : View.GONE}"
+                            tools:visibility="visible" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:text="@{viewModel.status.frameworkScopeEnabled ? @string/framework_scope_enabled : @string/framework_scope_missing}"
+                            android:text="@{viewModel.status.frameworkScopeEnabled ? @string/framework_scope_android_enabled : @string/framework_scope_android_missing}"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
                             android:textColor="@{viewModel.status.frameworkScopeEnabled ? @android:color/holo_green_dark : @android:color/holo_red_dark}"
-                            tools:text="系统框架作用域：未勾选" />
+                            tools:text="android：已勾选" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@{viewModel.status.systemScopeEnabled ? @string/framework_scope_system_enabled : @string/framework_scope_system_missing}"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="@{viewModel.status.systemScopeEnabled ? @android:color/holo_red_dark : @android:color/darker_gray}"
+                            tools:text="system：未勾选" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switch_framework_hide_root"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@string/framework_hide_root_switch"
+                            android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switch_framework_hide_magisk"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/framework_hide_magisk_switch"
+                            android:textAppearance="?attr/textAppearanceBodyMedium" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

@@ -1,6 +1,7 @@
 package com.yumito.yumyhook.xposed.config
 
 import com.yumito.yumyhook.model.HookFeatures
+import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import de.robv.android.xposed.XSharedPreferences
 import org.json.JSONObject
 
@@ -19,8 +20,10 @@ object HookFeatureConfig {
     fun current(): HookFeatures = cached
 
     fun refreshIfStale(): HookFeatures {
-        val file = SpoofConfigFile.hookSideFile()
-        val fileMtime = if (file.exists()) file.lastModified() else 0L
+        val fileMtime = HookReentryGuard.runFileBypass {
+            val file = SpoofConfigFile.hookSideFile()
+            if (file.exists()) file.lastModified() else 0L
+        }
         val prefsUpdatedAt = readPrefsUpdatedAt()
         if (fileMtime != cachedMtime || prefsUpdatedAt != cachedPrefsUpdatedAt) {
             return refresh()
@@ -30,7 +33,9 @@ object HookFeatureConfig {
 
     fun refresh(): HookFeatures {
         cached = readFeaturesFromHookSide()
-        cachedMtime = SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.lastModified() ?: 0L
+        cachedMtime = HookReentryGuard.runFileBypass {
+            SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.lastModified() ?: 0L
+        }
         cachedPrefsUpdatedAt = readPrefsUpdatedAt()
         return cached
     }
@@ -52,22 +57,26 @@ object HookFeatureConfig {
     }
 
     private fun readFeaturesFromConfigFile(): HookFeatures? {
-        val file = SpoofConfigFile.hookSideFile()
-        if (!file.exists() || file.length() == 0L) return null
-        return try {
-            SpoofConfigFile.readHookFeatures()
-        } catch (_: Throwable) {
-            null
+        return HookReentryGuard.runFileBypass {
+            val file = SpoofConfigFile.hookSideFile()
+            if (!file.exists() || file.length() == 0L) return@runFileBypass null
+            try {
+                SpoofConfigFile.readHookFeatures()
+            } catch (_: Throwable) {
+                null
+            }
         }
     }
 
     private fun readConfigFileUpdatedAt(): Long {
-        val file = SpoofConfigFile.hookSideFile()
-        if (!file.exists()) return 0L
-        return try {
-            org.json.JSONObject(file.readText()).optLong("updatedAt", file.lastModified())
-        } catch (_: Exception) {
-            file.lastModified()
+        return HookReentryGuard.runFileBypass {
+            val file = SpoofConfigFile.hookSideFile()
+            if (!file.exists()) return@runFileBypass 0L
+            try {
+                org.json.JSONObject(file.readText()).optLong("updatedAt", file.lastModified())
+            } catch (_: Exception) {
+                file.lastModified()
+            }
         }
     }
 

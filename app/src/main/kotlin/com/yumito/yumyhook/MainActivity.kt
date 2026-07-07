@@ -12,6 +12,8 @@ import com.yumito.yumyhook.databinding.ActivityMainBinding
 import com.yumito.yumyhook.ui.ImmersiveUi
 import com.yumito.yumyhook.ui.config.ConfigEditActivity
 import com.yumito.yumyhook.feature.home.MainViewModel
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.yumito.yumyhook.ui.home.ScopeAppAdapter
 
 /** 模块主页：Xposed 状态、Hook 总开关、伪装参数预览。 */
 class MainActivity : AppCompatActivity() {
@@ -20,6 +22,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var hookSwitch: MaterialSwitch? = null
     private var suppressHookToggle = false
+    private var suppressFrameworkToggle = false
+    private val scopeAppAdapter = ScopeAppAdapter()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +36,12 @@ class MainActivity : AppCompatActivity() {
 
         setSupportActionBar(binding.toolbar)
 
+        binding.rvScopeApps.layoutManager = LinearLayoutManager(this)
+        binding.rvScopeApps.adapter = scopeAppAdapter
+        viewModel.status.observe(this) { status ->
+            scopeAppAdapter.submit(status?.scopedApps.orEmpty())
+        }
+
         viewModel.hookEnabled.observe(this) { enabled ->
             hookSwitch?.let { switch -> suppressHookToggle = true
                 switch.isChecked = enabled
@@ -42,6 +52,25 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.hookBusy.observe(this) { busy ->
             hookSwitch?.isEnabled = !busy
+        }
+
+        viewModel.frameworkHideRoot.observe(this) { enabled ->
+            suppressFrameworkToggle = true
+            binding.switchFrameworkHideRoot.isChecked = enabled
+            suppressFrameworkToggle = false
+        }
+        viewModel.frameworkHideMagisk.observe(this) { enabled ->
+            suppressFrameworkToggle = true
+            binding.switchFrameworkHideMagisk.isChecked = enabled
+            suppressFrameworkToggle = false
+        }
+        binding.switchFrameworkHideRoot.setOnCheckedChangeListener { _, checked ->
+            if (suppressFrameworkToggle) return@setOnCheckedChangeListener
+            viewModel.setFrameworkHideRoot(checked)
+        }
+        binding.switchFrameworkHideMagisk.setOnCheckedChangeListener { _, checked ->
+            if (suppressFrameworkToggle) return@setOnCheckedChangeListener
+            viewModel.setFrameworkHideMagisk(checked)
         }
 
         viewModel.sessionMessage.observe(this) { message ->

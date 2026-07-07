@@ -6,6 +6,7 @@ object HookReentryGuard {
     private val depth = ThreadLocal<Int>()
     private val getpropBypass = ThreadLocal<Boolean>()
     private val mapsBypass = ThreadLocal<Boolean>()
+    private val fileBypass = ThreadLocal<Boolean>()
     private val shellProbeBypass = ThreadLocal<Boolean>()
 
     fun isInside(): Boolean = (depth.get() ?: 0) > 0
@@ -13,6 +14,8 @@ object HookReentryGuard {
     fun isGetpropBypass(): Boolean = getpropBypass.get() == true
 
     fun isMapsBypass(): Boolean = mapsBypass.get() == true
+
+    fun isFileBypass(): Boolean = fileBypass.get() == true
 
     fun isShellProbeBypass(): Boolean = shellProbeBypass.get() == true
 
@@ -31,6 +34,15 @@ object HookReentryGuard {
             block()
         } finally {
             mapsBypass.set(false)
+        }
+    }
+
+    fun <T> runFileBypass(block: () -> T): T {
+        fileBypass.set(true)
+        return try {
+            block()
+        } finally {
+            fileBypass.set(false)
         }
     }
 

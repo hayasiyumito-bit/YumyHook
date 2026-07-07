@@ -3,12 +3,17 @@ package com.yumito.yumyhook.xposed.stealth.root
 object ShellProbeFilter {
 
     private val BLOCKED_PATTERNS = listOf(
+        Regex("""\bresetprop\b""", RegexOption.IGNORE_CASE),
         Regex("""\bwhich\s+su\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bwhich\s+apatch\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bwhich\s+ksud\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bwhich\s+ksu\b""", RegexOption.IGNORE_CASE),
         Regex("""\bwhich\s+magisk\b""", RegexOption.IGNORE_CASE),
         Regex("""\bwhich\s+busybox\b""", RegexOption.IGNORE_CASE),
-        Regex("""\btype\s+su\b""", RegexOption.IGNORE_CASE),
         Regex("""\bcommand\s+-v\s+su\b""", RegexOption.IGNORE_CASE),
         Regex("""\bcommand\s+-v\s+magisk\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bls\s+.*/system(?:_ext)?/(?:bin|xbin)/su\b""", RegexOption.IGNORE_CASE),
+        Regex("""\btype\s+su\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(test|stat|\[)\s+.*\b(su|magisk|busybox)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(su|magisk)\s+(-c|--version|-v)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(busybox)\s+(su|magisk)\b""", RegexOption.IGNORE_CASE),
@@ -42,9 +47,11 @@ object ShellProbeFilter {
         if (shouldSanitize(parts.joinToString(" "))) return true
         return parts.any { token ->
             val lower = token.lowercase()
-            lower == "su" ||
+            lower == "ksu" ||
+                lower == "ksud" ||
                 lower.endsWith("/su") ||
                 lower.contains("magisk") ||
+                lower.contains("apatch") ||
                 lower.contains("busybox") ||
                 lower.contains("kernelsu") ||
                 lower.contains("supersu")

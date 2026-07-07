@@ -12,11 +12,19 @@ object RootPropertyStealthHook {
     private const val TARGET_CLASS = "android.os.SystemProperties"
     private val bootClassLoader: ClassLoader? = null
 
+    @Volatile
+    private var installed = false
+
     fun install() {
-        hookGetter("get", String::class.java)
-        hookGetter("get", String::class.java, String::class.java)
-        hookGetter("getInt", String::class.java, Integer.TYPE)
-        hookGetter("getBoolean", String::class.java, java.lang.Boolean.TYPE)
+        if (installed) return
+        synchronized(this) {
+            if (installed) return
+            hookGetter("get", String::class.java)
+            hookGetter("get", String::class.java, String::class.java)
+            hookGetter("getInt", String::class.java, Integer.TYPE)
+            hookGetter("getBoolean", String::class.java, java.lang.Boolean.TYPE)
+            installed = true
+        }
     }
 
     private fun hookGetter(name: String, vararg paramTypes: Any) {
