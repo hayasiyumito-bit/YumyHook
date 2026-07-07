@@ -7,6 +7,12 @@ object ShellProbeFilter {
         Regex("""\bwhich\s+magisk\b""", RegexOption.IGNORE_CASE),
         Regex("""\btype\s+su\b""", RegexOption.IGNORE_CASE),
         Regex("""\bcommand\s+-v\s+su\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bcat\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bhead\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bmore\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bgrep\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bgrep\s+.*\b(xposed|lsposed|frida|magisk|shadowhook|substrate|riru|zygisk)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bstrings\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
     )
 
     fun shouldSanitize(command: String?): Boolean {

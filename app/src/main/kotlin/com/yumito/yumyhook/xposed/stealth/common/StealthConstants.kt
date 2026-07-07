@@ -12,15 +12,29 @@ object StealthConstants {
         "frida",
         "xposed",
         "lsposed",
+        "lspatch",
         "substrate",
         "yumyhook",
+        "yumyhook_native",
+        "libyumyhook",
         "yumito",
         "lspd",
+        "liblspd",
         "edxposed",
         "riru",
+        "libriru",
+        "zygisk",
+        "shadowhook",
+        "bytehook",
+        "whale",
+        "sandhook",
+        "epic",
+        "pine",
+        "dobby",
     )
 
     const val PROC_SELF_MAPS = "/proc/self/maps"
+    const val PROC_SELF_STATUS = "/proc/self/status"
 
     /** CheckEmu HOOK_FRAMEWORK_FILES + SU_PATHS + Magisk — File.exists() 探测。 */
     val HIDDEN_PROBE_PATHS: Set<String> = setOf(
@@ -37,6 +51,10 @@ object StealthConstants {
         "/data/local/xbin/su",
         "/data/adb/magisk",
         "/sbin/.magisk",
+        "/data/adb/lspd",
+        "/data/adb/modules/zygisk_lsposed",
+        "/data/adb/modules/riru_lsposed",
+        "/data/misc/riru",
     )
 
     const val SETTINGS_ADB_ENABLED = "adb_enabled"

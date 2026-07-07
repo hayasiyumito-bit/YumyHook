@@ -10,6 +10,7 @@ import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
+import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.stealth.install.FeatureStealthInstaller
 import com.yumito.yumyhook.xposed.stealth.install.RegisterReceiverCompatHook
 import de.robv.android.xposed.callbacks.XC_LoadPackage
@@ -56,6 +57,7 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
             ensureNativeEarly(lpparam, resolved)
         }
+        finalizeNativeStealth(lpparam)
         ApplicationLifecycleScheduler.schedule(lpparam, resolved)
     }
 
@@ -76,6 +78,7 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
             ensureNative(lpparam, app, resolved)
         }
+        finalizeNativeStealth(lpparam)
     }
 
     fun onDeferredWithoutApplication(
@@ -93,6 +96,7 @@ object ChannelInstallCoordinator {
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
             installStealth(lpparam, lpparam.packageName, InstallPhase.APPLICATION_ON_CREATE)
         }
+        finalizeNativeStealth(lpparam)
     }
 
     fun onApplicationCreate(
@@ -118,6 +122,12 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
             ensureNativeDeferred(pkg, resolved)
         }
+        finalizeNativeStealth(lpparam)
+    }
+
+    private fun finalizeNativeStealth(lpparam: XC_LoadPackage.LoadPackageParam) {
+        if (NativeStealthBridge.isInstalled()) return
+        NativeStealthBridge.install(lpparam)
     }
 
     private fun shouldInstallCompatAt(resolved: ResolvedChannelStrategy, phase: InstallPhase): Boolean {

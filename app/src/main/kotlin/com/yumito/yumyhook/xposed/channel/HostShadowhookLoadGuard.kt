@@ -1,5 +1,6 @@
 package com.yumito.yumyhook.xposed.channel
 
+import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.channel.strategy.profiles.ShadowhookKnownApps
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XposedBridge
@@ -48,13 +49,17 @@ object HostShadowhookLoadGuard {
         val cl = boundClassLoader ?: return false
         if (pkg.isBlank() || dataDir.isBlank()) return false
         if (!ShadowhookKnownApps.isKnown(pkg)) return false
-        if (NativeBridge.isHooksInstalled()) return true
+        if (NativeBridge.isHooksInstalled()) {
+            NativeStealthBridge.install(pkg, dataDir, cl)
+            return true
+        }
         if (!HostShadowhookDetector.isHostNativeReady()) {
             XposedBridge.log("${XposedConstants.TAG}: native $stage wait host lib pkg=$pkg")
             return false
         }
         val ok = NativeBridge.installAfterHostLibrary(dataDir, pkg, cl)
         XposedBridge.log("${XposedConstants.TAG}: native $stage after maps=$ok pkg=$pkg")
+        NativeStealthBridge.install(pkg, dataDir, cl)
         return ok
     }
 

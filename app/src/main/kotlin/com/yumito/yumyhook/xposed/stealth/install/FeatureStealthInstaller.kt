@@ -9,6 +9,7 @@ import com.yumito.yumyhook.xposed.stealth.device.WebSettingsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.PackageHideStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.ProcMapsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.SensitivePathStealthHook
+import com.yumito.yumyhook.xposed.stealth.hide.XposedFingerprintStealthHook
 import com.yumito.yumyhook.xposed.stealth.identity.AppIdentityStealthHook
 import com.yumito.yumyhook.xposed.stealth.identity.InstallSourceStealthHook
 import com.yumito.yumyhook.xposed.stealth.location.LocationStealthHook
@@ -35,6 +36,8 @@ object FeatureStealthInstaller {
             ProcMapsStealthHook.install()
             SensitivePathStealthHook.install()
             PackageHideStealthHook.install(lpparam)
+            XposedFingerprintStealthHook.install()
+            ShellProbeStealthHook.install()
         }
         if (f.hideDeveloperOptions || f.hideRoot) {
             AdbStealthHook.install(lpparam)
@@ -43,7 +46,7 @@ object FeatureStealthInstaller {
             DeveloperOptionsStealthHook.install()
         }
         DebugStealthHook.install(lpparam)
-        if (f.hideRoot) {
+        if (f.hideRoot && !f.hideLsposed) {
             ShellProbeStealthHook.install()
         }
         if (f.hideVpn) VpnStealthHook.install()

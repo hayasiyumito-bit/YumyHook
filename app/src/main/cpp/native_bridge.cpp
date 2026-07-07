@@ -9,6 +9,13 @@
 #include <string>
 #include <algorithm>
 #include <atomic>
+#include <cctype>
+#include <cstdarg>
+#include <cstdio>
+#include <fcntl.h>
+#include <link.h>
+#include <sstream>
+#include <unistd.h>
 
 #define LOG_TAG "YumyHookNative"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -439,4 +446,326 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeUpdateProperties(
     size_t prop_count = g_props.size();
     pthread_rwlock_unlock(&g_lock);
     LOGI("properties synced count=%zu hooks=%d read_cb=%d", prop_count, g_hook_installed, g_read_callback_hooked);
+}
+
+// --- proc / linker stealth (hide LSPosed / shadowhook fingerprints) ---
+
+static bool g_proc_stealth_installed = false;
+static std::string g_proc_cache_dir;
+
+static const char *kProcFilterKeywords[] = {
+    "frida", "xposed", "lsposed", "lspatch", "substrate", "yumyhook", "yumyhook_native",
+    "libyumyhook", "yumito", "lspd", "liblspd", "edxposed", "riru", "libriru", "zygisk",
+    "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", nullptr,
+};
+
+static std::string to_lower_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+static bool proc_line_should_hide(const std::string &line) {
+    const std::string lower = to_lower_ascii(line);
+    for (const char **kw = kProcFilterKeywords; *kw != nullptr; ++kw) {
+        if (lower.find(*kw) != std::string::npos) {
+            return true;
+        }
+    }
+    if (lower.find("r-xp") == std::string::npos || lower.find("[anon:") == std::string::npos) {
+        return false;
+    }
+    return lower.find("hook") != std::string::npos ||
+        lower.find("shadow") != std::string::npos ||
+        lower.find("trampoline") != std::string::npos ||
+        lower.find("jit-cache") != std::string::npos;
+}
+
+static std::string filter_proc_maps_content(const std::string &raw) {
+    std::ostringstream out;
+    std::istringstream in(raw);
+    std::string line;
+    bool first = true;
+    while (std::getline(in, line)) {
+        if (proc_line_should_hide(line)) {
+            continue;
+        }
+        if (!first) {
+            out << '\n';
+        }
+        out << line;
+        first = false;
+    }
+    return out.str();
+}
+
+static std::string filter_proc_status_content(const std::string &raw) {
+    std::ostringstream out;
+    std::istringstream in(raw);
+    std::string line;
+    bool first = true;
+    while (std::getline(in, line)) {
+        std::string next = line;
+        if (line.rfind("TracerPid:", 0) == 0) {
+            next = "TracerPid:\t0";
+        } else if (line.rfind("Ptrace:", 0) == 0) {
+            next = "Ptrace:\t0";
+        }
+        if (!first) {
+            out << '\n';
+        }
+        out << next;
+        first = false;
+    }
+    return out.str();
+}
+
+enum class ProcPathKind { NONE, MAPS, STATUS };
+
+static ProcPathKind classify_proc_path(const char *path) {
+    if (path == nullptr || strstr(path, "/proc/") == nullptr) {
+        return ProcPathKind::NONE;
+    }
+    const size_t len = strlen(path);
+    if (len >= 5 && strcmp(path + len - 5, "/maps") == 0) {
+        return ProcPathKind::MAPS;
+    }
+    if (len >= 6 && strcmp(path + len - 6, "/smaps") == 0) {
+        return ProcPathKind::MAPS;
+    }
+    if (len >= 7 && strcmp(path + len - 7, "/status") == 0) {
+        return ProcPathKind::STATUS;
+    }
+    return ProcPathKind::NONE;
+}
+
+static std::string read_file_to_string(const char *path) {
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return {};
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+static std::string write_filtered_proc_temp(ProcPathKind kind) {
+    if (g_proc_cache_dir.empty()) {
+        return {};
+    }
+    const char *source = kind == ProcPathKind::STATUS ? "/proc/self/status" : "/proc/self/maps";
+    const std::string raw = read_file_to_string(source);
+    if (raw.empty()) {
+        return {};
+    }
+    const std::string filtered = kind == ProcPathKind::STATUS
+        ? filter_proc_status_content(raw)
+        : filter_proc_maps_content(raw);
+    const char *tag = kind == ProcPathKind::STATUS ? "status" : "maps";
+    static std::atomic<uint32_t> seq{0};
+    const uint32_t id = seq.fetch_add(1, std::memory_order_relaxed);
+    std::ostringstream path;
+    path << g_proc_cache_dir << "/.yh_" << tag << '_' << getpid() << '_' << id;
+    std::ofstream out(path.str(), std::ios::trunc);
+    if (!out.is_open()) {
+        return {};
+    }
+    out << filtered;
+    out.close();
+    return path.str();
+}
+
+static bool is_sensitive_lib_name(const char *name) {
+    if (name == nullptr || name[0] == '\0') {
+        return false;
+    }
+    const std::string lower = to_lower_ascii(name);
+    static const char *kLibs[] = {
+        "shadowhook", "yumyhook", "xposed", "lsposed", "frida", "riru", "lspd", "zygisk",
+        "edxposed", "substrate", "whale", "bytehook", nullptr,
+    };
+    for (const char **lib = kLibs; *lib != nullptr; ++lib) {
+        if (lower.find(*lib) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool is_sensitive_dlsym_name(const char *symbol) {
+    if (symbol == nullptr) {
+        return false;
+    }
+    const std::string lower = to_lower_ascii(symbol);
+    return lower.find("shadowhook") != std::string::npos ||
+        lower.find("xposedbridge") != std::string::npos ||
+        lower.find("lsposed") != std::string::npos;
+}
+
+static int (*orig_open)(const char *, int, ...) = nullptr;
+static int (*orig_openat)(int, const char *, int, ...) = nullptr;
+static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
+static void *(*orig_dlsym)(void *, const char *) = nullptr;
+static int (*orig_dl_iterate_phdr)(int (*)(struct dl_phdr_info *, size_t, void *), void *) = nullptr;
+
+static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode) {
+    if (has_mode) {
+        return orig_open(pathname, flags, mode);
+    }
+    return orig_open(pathname, flags);
+}
+
+static int call_orig_openat(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode) {
+    if (has_mode) {
+        return orig_openat(dirfd, pathname, flags, mode);
+    }
+    return orig_openat(dirfd, pathname, flags);
+}
+
+static int hooked_open(const char *pathname, int flags, ...) {
+    mode_t mode = 0;
+    const bool has_mode = (flags & O_CREAT) != 0;
+    if (has_mode) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = static_cast<mode_t>(va_arg(ap, int));
+        va_end(ap);
+    }
+    const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind != ProcPathKind::NONE) {
+        const std::string redirect = write_filtered_proc_temp(kind);
+        if (!redirect.empty()) {
+            return call_orig_open(redirect.c_str(), flags, mode, has_mode);
+        }
+    }
+    return call_orig_open(pathname, flags, mode, has_mode);
+}
+
+static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
+    mode_t mode = 0;
+    const bool has_mode = (flags & O_CREAT) != 0;
+    if (has_mode) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = static_cast<mode_t>(va_arg(ap, int));
+        va_end(ap);
+    }
+    const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind != ProcPathKind::NONE) {
+        const std::string redirect = write_filtered_proc_temp(kind);
+        if (!redirect.empty()) {
+            return call_orig_openat(dirfd, redirect.c_str(), flags, mode, has_mode);
+        }
+    }
+    return call_orig_openat(dirfd, pathname, flags, mode, has_mode);
+}
+
+static FILE *hooked_fopen(const char *pathname, const char *mode) {
+    const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind != ProcPathKind::NONE) {
+        const std::string redirect = write_filtered_proc_temp(kind);
+        if (!redirect.empty()) {
+            return orig_fopen(redirect.c_str(), mode);
+        }
+    }
+    return orig_fopen(pathname, mode);
+}
+
+static void *hooked_dlsym(void *handle, const char *symbol) {
+    if (is_sensitive_dlsym_name(symbol)) {
+        return nullptr;
+    }
+    return orig_dlsym(handle, symbol);
+}
+
+struct DlIterateCtx {
+    int (*callback)(struct dl_phdr_info *, size_t, void *);
+    void *data;
+};
+
+static int dl_iterate_shim(struct dl_phdr_info *info, size_t size, void *data) {
+    auto *ctx = static_cast<DlIterateCtx *>(data);
+    if (info != nullptr && is_sensitive_lib_name(info->dlpi_name)) {
+        return 0;
+    }
+    return ctx->callback(info, size, ctx->data);
+}
+
+static int hooked_dl_iterate_phdr(int (*callback)(struct dl_phdr_info *, size_t, void *), void *data) {
+    DlIterateCtx ctx{callback, data};
+    return orig_dl_iterate_phdr(dl_iterate_shim, &ctx);
+}
+
+static bool ensure_hook_engine_for_stealth() {
+    if (host_hook_engine_ready()) {
+        return true;
+    }
+    const int init_rc = shadowhook_init(SHADOWHOOK_MODE_SHARED, false);
+    if (init_rc != 0) {
+        LOGE("proc stealth shadowhook_init failed: %d (%s)", init_rc, shadowhook_to_errmsg(shadowhook_get_errno()));
+        return false;
+    }
+    LOGI("proc stealth shadowhook_init ok");
+    return true;
+}
+
+static bool install_proc_stealth_hooks() {
+    if (g_proc_stealth_installed) {
+        return true;
+    }
+    if (g_proc_cache_dir.empty()) {
+        LOGE("proc stealth missing cache dir");
+        return false;
+    }
+    if (!ensure_hook_engine_for_stealth()) {
+        return false;
+    }
+    bool any = false;
+    void *orig = nullptr;
+    if (hook_sym("libc.so", "open", reinterpret_cast<void *>(hooked_open), &orig, "open(proc)")) {
+        orig_open = reinterpret_cast<int (*)(const char *, int, ...)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "openat", reinterpret_cast<void *>(hooked_openat), &orig, "openat(proc)")) {
+        orig_openat = reinterpret_cast<int (*)(int, const char *, int, ...)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "fopen", reinterpret_cast<void *>(hooked_fopen), &orig, "fopen(proc)")) {
+        orig_fopen = reinterpret_cast<FILE *(*)(const char *, const char *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libdl.so", "dlsym", reinterpret_cast<void *>(hooked_dlsym), &orig, "dlsym(stealth)")) {
+        orig_dlsym = reinterpret_cast<void *(*)(void *, const char *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libdl.so", "dl_iterate_phdr", reinterpret_cast<void *>(hooked_dl_iterate_phdr), &orig, "dl_iterate_phdr")) {
+        orig_dl_iterate_phdr = reinterpret_cast<int (*)(int (*)(struct dl_phdr_info *, size_t, void *), void *)>(orig);
+        any = true;
+    }
+    g_proc_stealth_installed = any;
+    LOGI("proc stealth hooks=%d", any ? 1 : 0);
+    return any;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_yumito_yumyhook_xposed_stealth_hide_NativeStealthBridge_nativeInstallProcStealth(
+    JNIEnv *env,
+    jclass,
+    jstring jCacheDir
+) {
+    if (jCacheDir == nullptr) {
+        return JNI_FALSE;
+    }
+    const char *cache_dir = env->GetStringUTFChars(jCacheDir, nullptr);
+    if (cache_dir == nullptr) {
+        return JNI_FALSE;
+    }
+    g_proc_cache_dir = cache_dir;
+    env->ReleaseStringUTFChars(jCacheDir, cache_dir);
+    return install_proc_stealth_hooks() ? JNI_TRUE : JNI_FALSE;
 }
