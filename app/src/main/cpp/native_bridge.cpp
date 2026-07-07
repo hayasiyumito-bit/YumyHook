@@ -17,6 +17,7 @@
 #include <link.h>
 #include <sstream>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #define LOG_TAG "YH-NATIVE-PROP"
@@ -444,9 +445,27 @@ static bool retry_deferred_hooks() {
     return any;
 }
 
+static void ensure_proc_cache_dir(const char *dir) {
+    if (dir != nullptr && dir[0] != '\0') {
+        g_proc_cache_dir = dir;
+    }
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeInstallPropertyHook(JNIEnv *, jclass, jboolean libc_only) {
+Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeInstallPropertyHook(
+    JNIEnv *env,
+    jclass,
+    jboolean libc_only,
+    jstring j_cache_dir
+) {
     g_libc_only_mode = libc_only == JNI_TRUE;
+    if (j_cache_dir != nullptr) {
+        const char *cache_dir = env->GetStringUTFChars(j_cache_dir, nullptr);
+        if (cache_dir != nullptr) {
+            ensure_proc_cache_dir(cache_dir);
+            env->ReleaseStringUTFChars(j_cache_dir, cache_dir);
+        }
+    }
     return install_property_hook() ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -601,8 +620,8 @@ static const char *kProcFilterKeywords[] = {
     "frida", "xposed", "lsposed", "lspatch", "substrate", "yumyhook", "yumyhook_native",
     "libyumyhook", "yumito", "lspd", "liblspd", "edxposed", "riru", "libriru", "zygisk",
         "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", "magisk", "magiskpolicy",
-        "kernelsu", "ksu", "ksud", "apatch",
-        "supersu", "busybox", nullptr,
+        "resetprop", "kernelsu", "ksu", "ksud", "apatch",
+        "supersu", "daemonsu", "busybox", nullptr,
 };
 
 static std::string to_lower_ascii(std::string value) {
@@ -866,39 +885,312 @@ static int hooked_dladdr(const void *addr, Dl_info *info) {
     return rc;
 }
 
+static int deny_root_path_errno() {
+    errno = ENOENT;
+    return -1;
+}
+
+static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode);
+static int call_orig_openat(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode);
+
+static int open_proc_redirect(const char *pathname, int flags, mode_t mode, bool has_mode) {
+    const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind == ProcPathKind::MEM) {
+        return deny_root_path_errno();
+    }
+    if (kind == ProcPathKind::NONE) {
+        return -2;
+    }
+    const std::string redirect = write_filtered_proc_temp(kind);
+    if (redirect.empty()) {
+        return deny_root_path_errno();
+    }
+    return call_orig_open(redirect.c_str(), flags, mode, has_mode);
+}
+
+static int openat_proc_redirect(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode) {
+    const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind == ProcPathKind::MEM) {
+        return deny_root_path_errno();
+    }
+    if (kind == ProcPathKind::NONE) {
+        return -2;
+    }
+    const std::string redirect = write_filtered_proc_temp(kind);
+    if (redirect.empty()) {
+        return deny_root_path_errno();
+    }
+    return call_orig_openat(dirfd, redirect.c_str(), flags, mode, has_mode);
+}
+
+static long (*orig___syscall)(long, long, long, long, long, long, long) = nullptr;
+static long (*orig_syscall)(long, ...) = nullptr;
+
+static long invoke_orig_syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
+    if (orig___syscall != nullptr) {
+        return orig___syscall(number, a0, a1, a2, a3, a4, a5);
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+static long dispatch_stealth_syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
+    if (proc_io_bypass()) {
+        return invoke_orig_syscall(number, a0, a1, a2, a3, a4, a5);
+    }
+#if defined(__NR_faccessat)
+    if (number == __NR_faccessat) {
+        const auto *path = reinterpret_cast<const char *>(a1);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+#endif
+#if defined(__NR_faccessat2)
+    if (number == __NR_faccessat2) {
+        const auto *path = reinterpret_cast<const char *>(a1);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+#endif
+#if defined(__NR_newfstatat)
+    if (number == __NR_newfstatat) {
+        const auto *path = reinterpret_cast<const char *>(a1);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+#endif
+#if defined(__NR_readlinkat)
+    if (number == __NR_readlinkat) {
+        const auto *path = reinterpret_cast<const char *>(a1);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+#endif
+#if defined(__NR_access)
+    if (number == __NR_access) {
+        const auto *path = reinterpret_cast<const char *>(a0);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+#endif
+#if defined(__NR_openat)
+    if (number == __NR_openat
+#if defined(__NR_openat2)
+        || number == __NR_openat2
+#endif
+    ) {
+        const auto *path = reinterpret_cast<const char *>(a1);
+        if (is_root_sensitive_path(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+        const ProcPathKind kind = classify_proc_path(path);
+        if (kind == ProcPathKind::MEM) {
+            errno = ENOENT;
+            return -1;
+        }
+        if (kind != ProcPathKind::NONE) {
+            const std::string redirect = write_filtered_proc_temp(kind);
+            if (redirect.empty()) {
+                errno = ENOENT;
+                return -1;
+            }
+            return invoke_orig_syscall(
+                __NR_openat,
+                a0,
+                reinterpret_cast<long>(redirect.c_str()),
+                a2,
+                a3,
+                a4,
+                a5);
+        }
+    }
+#endif
+    return invoke_orig_syscall(number, a0, a1, a2, a3, a4, a5);
+}
+
+static long hooked___syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
+    return dispatch_stealth_syscall(number, a0, a1, a2, a3, a4, a5);
+}
+
+static long hooked_syscall(long number, ...) {
+    va_list ap;
+    va_start(ap, number);
+    const long a0 = va_arg(ap, long);
+    const long a1 = va_arg(ap, long);
+    const long a2 = va_arg(ap, long);
+    const long a3 = va_arg(ap, long);
+    const long a4 = va_arg(ap, long);
+    const long a5 = va_arg(ap, long);
+    va_end(ap);
+    return dispatch_stealth_syscall(number, a0, a1, a2, a3, a4, a5);
+}
+
 static int hooked_access(const char *pathname, int mode) {
     if (proc_io_bypass() && orig_access != nullptr) {
         return orig_access(pathname, mode);
     }
     if (is_root_sensitive_path(pathname)) {
-        errno = ENOENT;
-        return -1;
+        return deny_root_path_errno();
     }
     return orig_access(pathname, mode);
 }
 
 static int hooked_faccessat(int dirfd, const char *pathname, int mode, int flags) {
+    if (proc_io_bypass() && orig_faccessat != nullptr) {
+        return orig_faccessat(dirfd, pathname, mode, flags);
+    }
     if (is_root_sensitive_path(pathname)) {
-        errno = ENOENT;
-        return -1;
+        return deny_root_path_errno();
     }
     return orig_faccessat(dirfd, pathname, mode, flags);
 }
 
 static int hooked_stat(const char *pathname, struct stat *buf) {
+    if (proc_io_bypass() && orig_stat != nullptr) {
+        return orig_stat(pathname, buf);
+    }
     if (is_root_sensitive_path(pathname)) {
-        errno = ENOENT;
-        return -1;
+        return deny_root_path_errno();
     }
     return orig_stat(pathname, buf);
 }
 
 static int hooked_lstat(const char *pathname, struct stat *buf) {
+    if (proc_io_bypass() && orig_lstat != nullptr) {
+        return orig_lstat(pathname, buf);
+    }
+    if (is_root_sensitive_path(pathname)) {
+        return deny_root_path_errno();
+    }
+    return orig_lstat(pathname, buf);
+}
+
+static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = nullptr;
+static ssize_t (*orig_readlink)(const char *, char *, size_t) = nullptr;
+static char *(*orig_fgets)(char *, int, FILE *) = nullptr;
+static ssize_t (*orig_read)(int, void *, size_t) = nullptr;
+static int (*orig___faccessat)(int, const char *, int, int) = nullptr;
+static int (*orig___openat)(int, const char *, int, int) = nullptr;
+
+static bool fd_is_proc_sensitive(int fd) {
+    if (fd < 0) {
+        return false;
+    }
+    char link_path[64];
+    snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", fd);
+    char target[512];
+    ssize_t len = -1;
+    if (orig_readlink != nullptr) {
+        len = orig_readlink(link_path, target, sizeof(target) - 1);
+    } else {
+        len = readlink(link_path, target, sizeof(target) - 1);
+    }
+    if (len <= 0) {
+        return false;
+    }
+    target[len] = '\0';
+    return classify_proc_path(target) != ProcPathKind::NONE;
+}
+
+static ssize_t hooked_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsize) {
+    if (proc_io_bypass() && orig_readlinkat != nullptr) {
+        return orig_readlinkat(dirfd, pathname, buf, bufsize);
+    }
     if (is_root_sensitive_path(pathname)) {
         errno = ENOENT;
         return -1;
     }
-    return orig_lstat(pathname, buf);
+    return orig_readlinkat(dirfd, pathname, buf, bufsize);
+}
+
+static ssize_t hooked_readlink(const char *pathname, char *buf, size_t bufsize) {
+    if (proc_io_bypass() && orig_readlink != nullptr) {
+        return orig_readlink(pathname, buf, bufsize);
+    }
+    if (is_root_sensitive_path(pathname)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_readlink(pathname, buf, bufsize);
+}
+
+static char *hooked_fgets(char *buf, int size, FILE *stream) {
+    if (buf == nullptr || size <= 0 || stream == nullptr || orig_fgets == nullptr) {
+        return orig_fgets(buf, size, stream);
+    }
+    const int fd = fileno(stream);
+    const bool filter_proc = !proc_io_bypass() && fd_is_proc_sensitive(fd);
+    while (true) {
+        char *line = orig_fgets(buf, size, stream);
+        if (line == nullptr || !filter_proc) {
+            return line;
+        }
+        if (!proc_line_should_hide(line)) {
+            return line;
+        }
+        if (feof(stream) != 0) {
+            return nullptr;
+        }
+    }
+}
+
+static ssize_t filter_proc_read_buf(void *buf, ssize_t n) {
+    if (n <= 0 || buf == nullptr) {
+        return n;
+    }
+    std::string chunk(static_cast<const char *>(buf), static_cast<size_t>(n));
+    std::string filtered = filter_proc_maps_content(chunk);
+    if (filtered.size() < chunk.size()) {
+        memcpy(buf, filtered.c_str(), filtered.size());
+        return static_cast<ssize_t>(filtered.size());
+    }
+    return n;
+}
+
+static ssize_t hooked_read(int fd, void *buf, size_t count) {
+    const ssize_t n = orig_read(fd, buf, count);
+    if (n <= 0 || proc_io_bypass() || !fd_is_proc_sensitive(fd)) {
+        return n;
+    }
+    return filter_proc_read_buf(buf, n);
+}
+
+static int hooked___faccessat(int dirfd, const char *pathname, int mode, int flags) {
+    if (proc_io_bypass() && orig___faccessat != nullptr) {
+        return orig___faccessat(dirfd, pathname, mode, flags);
+    }
+    if (is_root_sensitive_path(pathname)) {
+        return deny_root_path_errno();
+    }
+    if (orig___faccessat != nullptr) {
+        return orig___faccessat(dirfd, pathname, mode, flags);
+    }
+    return orig_faccessat(dirfd, pathname, mode, flags);
+}
+
+static int hooked___openat(int dirfd, const char *pathname, int flags, int mode) {
+    if (proc_io_bypass()) {
+        return orig___openat(dirfd, pathname, flags, mode);
+    }
+    if (is_root_sensitive_path(pathname)) {
+        return deny_root_path_errno();
+    }
+    const int redirected = openat_proc_redirect(dirfd, pathname, flags, static_cast<mode_t>(mode), true);
+    if (redirected != -2) {
+        return redirected;
+    }
+    return orig___openat(dirfd, pathname, flags, mode);
 }
 
 static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode) {
@@ -935,16 +1227,12 @@ static int hooked_open(const char *pathname, int flags, ...) {
         mode = static_cast<mode_t>(va_arg(ap, int));
         va_end(ap);
     }
-    const ProcPathKind kind = classify_proc_path(pathname);
-    if (kind == ProcPathKind::MEM) {
-        errno = ENOENT;
-        return -1;
+    if (is_root_sensitive_path(pathname)) {
+        return deny_root_path_errno();
     }
-    if (kind != ProcPathKind::NONE) {
-        const std::string redirect = write_filtered_proc_temp(kind);
-        if (!redirect.empty()) {
-            return call_orig_open(redirect.c_str(), flags, mode, has_mode);
-        }
+    const int redirected = open_proc_redirect(pathname, flags, mode, has_mode);
+    if (redirected != -2) {
+        return redirected;
     }
     return call_orig_open(pathname, flags, mode, has_mode);
 }
@@ -969,16 +1257,12 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
         mode = static_cast<mode_t>(va_arg(ap, int));
         va_end(ap);
     }
-    const ProcPathKind kind = classify_proc_path(pathname);
-    if (kind == ProcPathKind::MEM) {
-        errno = ENOENT;
-        return -1;
+    if (is_root_sensitive_path(pathname)) {
+        return deny_root_path_errno();
     }
-    if (kind != ProcPathKind::NONE) {
-        const std::string redirect = write_filtered_proc_temp(kind);
-        if (!redirect.empty()) {
-            return call_orig_openat(dirfd, redirect.c_str(), flags, mode, has_mode);
-        }
+    const int redirected = openat_proc_redirect(dirfd, pathname, flags, mode, has_mode);
+    if (redirected != -2) {
+        return redirected;
     }
     return call_orig_openat(dirfd, pathname, flags, mode, has_mode);
 }
@@ -986,6 +1270,10 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
 static FILE *hooked_fopen(const char *pathname, const char *mode) {
     if (proc_io_bypass() && orig_fopen != nullptr) {
         return orig_fopen(pathname, mode);
+    }
+    if (is_root_sensitive_path(pathname)) {
+        errno = ENOENT;
+        return nullptr;
     }
     const ProcPathKind kind = classify_proc_path(pathname);
     if (kind == ProcPathKind::MEM) {
@@ -1025,8 +1313,16 @@ static bool ensure_hook_engine_for_stealth() {
     return ensure_shadowhook_engine();
 }
 
+static bool proc_stealth_critical_ready() {
+    const bool path_block = orig_access != nullptr || orig_faccessat != nullptr ||
+        orig___faccessat != nullptr || orig___syscall != nullptr || orig_syscall != nullptr;
+    const bool proc_read = (orig_fopen != nullptr || orig_open != nullptr) &&
+        (orig_fgets != nullptr || orig_read != nullptr);
+    return path_block && proc_read;
+}
+
 static bool install_proc_stealth_hooks() {
-    if (g_proc_stealth_installed) {
+    if (g_proc_stealth_installed && proc_stealth_critical_ready()) {
         return true;
     }
     if (g_proc_cache_dir.empty()) {
@@ -1091,9 +1387,58 @@ static bool install_proc_stealth_hooks() {
         orig_lstat = reinterpret_cast<int (*)(const char *, struct stat *)>(orig);
         any = true;
     }
-    g_proc_stealth_installed = any;
-    SLOGI("proc stealth hooks=%d fopen=%d access=%d", any ? 1 : 0, orig_fopen != nullptr ? 1 : 0, orig_access != nullptr ? 1 : 0);
-    return any;
+    orig = nullptr;
+    if (hook_sym("libc.so", "readlinkat", reinterpret_cast<void *>(hooked_readlinkat), &orig, "readlinkat(root)")) {
+        orig_readlinkat = reinterpret_cast<ssize_t (*)(int, const char *, char *, size_t)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "readlink", reinterpret_cast<void *>(hooked_readlink), &orig, "readlink(root)")) {
+        orig_readlink = reinterpret_cast<ssize_t (*)(const char *, char *, size_t)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "fgets", reinterpret_cast<void *>(hooked_fgets), &orig, "fgets(proc)")) {
+        orig_fgets = reinterpret_cast<char *(*)(char *, int, FILE *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "read", reinterpret_cast<void *>(hooked_read), &orig, "read(proc)")) {
+        orig_read = reinterpret_cast<ssize_t (*)(int, void *, size_t)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "__faccessat", reinterpret_cast<void *>(hooked___faccessat), &orig, "__faccessat(root)")) {
+        orig___faccessat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "__openat", reinterpret_cast<void *>(hooked___openat), &orig, "__openat(proc)")) {
+        orig___openat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "__syscall", reinterpret_cast<void *>(hooked___syscall), &orig, "__syscall(stealth)")) {
+        orig___syscall = reinterpret_cast<long (*)(long, long, long, long, long, long, long)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "syscall", reinterpret_cast<void *>(hooked_syscall), &orig, "syscall(stealth)")) {
+        orig_syscall = reinterpret_cast<long (*)(long, ...)>(orig);
+        any = true;
+    }
+    const bool critical = proc_stealth_critical_ready();
+    g_proc_stealth_installed = critical;
+    SLOGI(
+        "proc stealth critical=%d access=%d faccessat=%d fopen=%d fgets=%d __syscall=%d syscall=%d",
+        critical ? 1 : 0,
+        orig_access != nullptr ? 1 : 0,
+        orig_faccessat != nullptr ? 1 : 0,
+        orig_fopen != nullptr ? 1 : 0,
+        orig_fgets != nullptr ? 1 : 0,
+        orig___syscall != nullptr ? 1 : 0,
+        orig_syscall != nullptr ? 1 : 0);
+    return critical;
 }
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -1124,7 +1469,7 @@ Java_com_yumito_yumyhook_xposed_stealth_hide_NativeStealthBridge_nativeInstallPr
     if (cache_dir == nullptr) {
         return JNI_FALSE;
     }
-    g_proc_cache_dir = cache_dir;
+    ensure_proc_cache_dir(cache_dir);
     env->ReleaseStringUTFChars(jCacheDir, cache_dir);
     return install_proc_stealth_hooks() ? JNI_TRUE : JNI_FALSE;
 }

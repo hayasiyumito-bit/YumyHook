@@ -175,7 +175,7 @@ object NativeBridge {
             return
         }
         try {
-            val ok = nativeInstallPropertyHook(libcOnly)
+            val ok = nativeInstallPropertyHook(libcOnly, dataDir)
             hooksInstalled = ok
             val probe = if (ok) nativeProbeProperty("ro.product.model") else "n/a"
             val libcProbe = if (ok) nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
@@ -208,7 +208,7 @@ object NativeBridge {
     }
 
     @JvmStatic
-    private external fun nativeInstallPropertyHook(libcOnly: Boolean): Boolean
+    private external fun nativeInstallPropertyHook(libcOnly: Boolean, cacheDir: String?): Boolean
 
     @JvmStatic
     private external fun nativeRetryDeferredHooks(): Boolean

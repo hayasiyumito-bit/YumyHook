@@ -1,0 +1,66 @@
+---
+description: YumyHook 高频回归红线（Root 隐藏 / 四通道 / Native 加载）
+alwaysApply: true
+---
+
+# YumyHook 回归红线
+
+验证参考：`deviceinfo_collect`（`com.android.device`），**禁止**为它写专用 Hook；对照其检测逻辑做通用系统层隐藏。其他业务 App 常复用同类 **Magisk / KernelSU / APatch / 系统 su** 向量，四框架须同等覆盖。
+
+## 1. isRooted / frameworkConfirmed / hideSuspected（最高优先级）
+
+`CheckEmu.buildRootSection`：
+
+```
+frameworkConfirmed = magiskDetected || kernelsuDetected || apatchDetected || systemSuDetected
+isRooted = hasPositiveRootIndicator(indicators) || frameworkConfirmed
+```
+
+- **`hideSuspected` 不再单独使 `isRooted=true`**
+- `magiskHideSuspected` = `hideSuspected`（兼容字段）
+
+`RootFrameworkDetector`：
+
+- `applyNativeProbeToFrameworks`：Native `getMagiskNativeProbe` 命中可 **直接** 置 `magiskDetected` 等 → `frameworkConfirmed`
+- `hideSuspected` = (maps/mount/native 命中 || javaNativeMismatches) && Java 路径全不可见 && su 未授权 && **!frameworkConfirmed**
+- Boot 解锁 **不** 再触发 `hideSuspected`
+
+**必须 Java + Native 双层对齐**（四框架路径/关键词同等对待）：
+
+| 检测向量 | Java 层 | Native 层（`native_bridge.cpp`） |
+|---------|---------|----------------------------------|
+| 四框架路径 | `SensitivePathStealthHook` + `Os.access/stat` | `access`/`faccessat`/`__faccessat` + `__syscall` faccessat |
+| `/proc` maps/mount | `ProcMapsStealthHook` / `ProcFsRedirect` | `fopen`/`open`/`__openat` 重定向 + **`fgets`/`read` 行过滤** |
+| 库枚举 | `ProcMapsStealthHook` | `dl_iterate_phdr` |
+
+关键词须覆盖：`magisk`/`zygisk`、`kernelsu`/`ksud`/`ksu`、`apatch`/`apd`/`/data/adb/ap`、`supersu`/`daemonsu`（与 `device.cpp`、`RootFrameworkDetector` 对齐）。
+
+改 stealth 后回归：`debug_output.json` →
+
+- `magiskDetected`/`kernelsuDetected`/`apatchDetected`/`systemSuDetected` → false
+- `frameworkConfirmed`/`isRooted` → false（无经典指标时）
+- `rootProbe.hideSuspected`/`magiskHideSuspected` → false
+- `sharedIndicators.nativeProbe.anyHit` 空；`javaNativeMismatches` 空
+- `anyRisk` → false
+
+logcat：`adb logcat -s YH-NATIVE-STEALTH`，确认 `fgets=1 __syscall=1`。
+
+## 2. 四通道
+
+- Build / SystemProperties / getprop / Native 对任意作用域 App 一致
+- `libcutils property_get`：早期 `dlsym` shim + `property_get` hook；`nativeDiagnostics.libcutils` 不得长期 `unavailable`
+- 属性篡改：`propertyProbes` 各通道值一致；参考 `HOOK_PROBE_KEYS`
+- 改 `native_bridge.cpp` 包名须同步 JNI
+
+## 3. QQ / 微信等崩溃
+
+- `NativeLoadGuard` **仅** hook `Runtime.loadLibrary0(ClassLoader, String)` 且 `loader === hostClassLoader`
+- **禁止** hook `System.loadLibrary` / 全局 `loadLibrary`
+- 宿主自带 shadowhook：`HOST_SHADOWHOOK_DEFERRED`，只载 `libyumyhook_native.so`
+- `shadowhook_init` 全局一次（`ensure_shadowhook_engine`）
+
+## 4. 改完自检
+
+1. `./gradlew :app:assembleDebug`
+2. `com.android.device` 采集 → 贴 `debug_output.json`
+3. 四通道 + 四框架 `*Detected` + `frameworkConfirmed` + `rootProbe` + `anyRisk` 全绿再收工

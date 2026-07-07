@@ -49,5 +49,5 @@ object XposedConstants {
     const val PREF_FEATURES_JSON = "spoof_features_json"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 69
+    const val HOOK_REV = 72
 }

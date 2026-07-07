@@ -16,6 +16,7 @@ object NativeApiStealthHook {
         synchronized(this) {
             if (installed) return
             hookOsMethod("access", String::class.java, Integer.TYPE)
+            hookOsMethod("faccessat", Integer.TYPE, String::class.java, Integer.TYPE, Integer.TYPE)
             hookOsMethod("stat", String::class.java)
             hookOsMethod("lstat", String::class.java)
             installed = true
@@ -31,7 +32,7 @@ object NativeApiStealthHook {
                 *params,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val path = param.args.firstOrNull() as? String ?: return
+                        val path = pathArgForOsMethod(name, param.args) ?: return
                         if (!SensitivePathFilter.isHidden(path)) return
                         param.throwable = android.system.ErrnoException(
                             name,
@@ -42,6 +43,13 @@ object NativeApiStealthHook {
             )
         } catch (e: Throwable) {
             XposedBridge.log("${XposedConstants.TAG}: Os.$name skip: ${e.message}")
+        }
+    }
+
+    private fun pathArgForOsMethod(name: String, args: Array<Any?>): String? {
+        return when (name) {
+            "faccessat" -> args.getOrNull(1) as? String
+            else -> args.firstOrNull() as? String
         }
     }
 }

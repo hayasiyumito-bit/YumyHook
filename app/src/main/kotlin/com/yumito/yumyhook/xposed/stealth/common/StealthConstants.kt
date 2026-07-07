@@ -59,6 +59,7 @@ object StealthConstants {
         "dobby",
         "magisk",
         "magiskpolicy",
+        "resetprop",
         "kernelsu",
         "ksu",
         "ksud",
