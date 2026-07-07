@@ -226,6 +226,35 @@ static bool hook_sym(const char *lib, const char *sym, void *new_func, void **or
     return false;
 }
 
+static bool install_libcutils_property_get() {
+    if (g_property_get_hooked) {
+        return true;
+    }
+    void *orig_pg = nullptr;
+    static const char *kLibPaths[] = {
+        "libcutils.so",
+        "/system/lib64/libcutils.so",
+        "/system/lib/libcutils.so",
+        "/vendor/lib64/libcutils.so",
+        "/vendor/lib/libcutils.so",
+        nullptr,
+    };
+    for (const char **lib = kLibPaths; *lib != nullptr; ++lib) {
+        if (hook_sym(
+                *lib,
+                "property_get",
+                reinterpret_cast<void *>(hooked_property_get),
+                &orig_pg,
+                "property_get")) {
+            g_property_get_hooked = true;
+            orig_property_get_fn = reinterpret_cast<int (*)(const char *, char *, const char *)>(orig_pg);
+            LOGI("property_get hooked via %s", *lib);
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool install_dlsym_shim() {
     if (orig_dlsym != nullptr) {
         return true;
@@ -369,15 +398,7 @@ static bool install_property_hook() {
         any = true;
     }
     void *orig_pg = nullptr;
-    if (!g_property_get_hooked &&
-        hook_sym(
-            "libcutils.so",
-            "property_get",
-            reinterpret_cast<void *>(hooked_property_get),
-            &orig_pg,
-            "property_get")) {
-        g_property_get_hooked = true;
-        orig_property_get_fn = reinterpret_cast<int (*)(const char *, char *, const char *)>(orig_pg);
+    if (!g_property_get_hooked && install_libcutils_property_get()) {
         any = true;
     }
     void *orig_read = nullptr;
@@ -419,15 +440,7 @@ static bool retry_deferred_hooks() {
     bool any = g_read_callback_hooked || g_property_get_hooked ||
         g_system_property_get_hooked || g_system_property_read_hooked;
     if (!g_property_get_hooked) {
-        void *orig_pg = nullptr;
-        if (hook_sym(
-                "libcutils.so",
-                "property_get",
-                reinterpret_cast<void *>(hooked_property_get),
-                &orig_pg,
-                "property_get(deferred)")) {
-            g_property_get_hooked = true;
-            orig_property_get_fn = reinterpret_cast<int (*)(const char *, char *, const char *)>(orig_pg);
+        if (install_libcutils_property_get()) {
             any = true;
         }
     }
@@ -436,6 +449,9 @@ static bool retry_deferred_hooks() {
     }
     if (install_dlsym_shim()) {
         any = true;
+    }
+    if (!g_proc_cache_dir.empty()) {
+        install_proc_stealth_hooks();
     }
     return any;
 }
@@ -498,16 +514,20 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeLibcutilsPropert
         return env->NewStringUTF("");
     }
     char value[PROP_VALUE_MAX] = {0};
-    typedef int (*property_get_fn)(const char *, char *, const char *);
-    property_get_fn fn = nullptr;
-    void *handle = dlopen("libcutils.so", RTLD_NOW);
-    if (handle != nullptr) {
-        fn = reinterpret_cast<property_get_fn>(dlsym(handle, "property_get"));
+    if (g_property_get_hooked || orig_property_get_fn != nullptr) {
+        yh_dlsym_property_get(name, value, "");
+    } else {
+        typedef int (*property_get_fn)(const char *, char *, const char *);
+        property_get_fn fn = nullptr;
+        void *handle = dlopen("libcutils.so", RTLD_NOW);
+        if (handle != nullptr) {
+            fn = reinterpret_cast<property_get_fn>(dlsym(handle, "property_get"));
+        }
+        if (fn != nullptr) {
+            fn(name, value, "");
+        }
     }
-    if (fn != nullptr) {
-        fn(name, value, "");
-    }
-    LOGI("probe libcutils key=%s handle=%p fn=%p value=%s", name, handle, fn, value);
+    LOGI("probe libcutils key=%s hooked=%d value=%s", name, g_property_get_hooked ? 1 : 0, value);
     env->ReleaseStringUTFChars(jname, name);
     return env->NewStringUTF(value);
 }
@@ -1225,7 +1245,7 @@ static bool install_proc_stealth_hooks() {
     if (!ensure_hook_engine_for_stealth()) {
         return false;
     }
-    bool any = false;
+    bool any = g_proc_stealth_installed;
     void *orig = nullptr;
     if (hook_sym("libc.so", "open", reinterpret_cast<void *>(hooked_open), &orig, "open(proc)")) {
         orig_open = reinterpret_cast<int (*)(const char *, int, ...)>(orig);
@@ -1311,12 +1331,14 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     const bool critical = proc_stealth_critical_ready();
-    g_proc_stealth_installed = critical;
+    g_proc_stealth_installed = any;
     SLOGI(
-        "proc stealth critical=%d access=%d faccessat=%d fopen=%d fgets=%d",
+        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d fgets=%d",
+        any ? 1 : 0,
         critical ? 1 : 0,
         orig_access != nullptr ? 1 : 0,
         orig_faccessat != nullptr ? 1 : 0,
+        orig___faccessat != nullptr ? 1 : 0,
         orig_fopen != nullptr ? 1 : 0,
         orig_fgets != nullptr ? 1 : 0);
     return critical;

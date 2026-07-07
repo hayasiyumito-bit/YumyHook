@@ -7,6 +7,7 @@ import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.io.File
+import java.lang.reflect.Method
 import java.util.zip.ZipFile
 
 /** 从模块 APK 解压 .so 到宿主 cache，经宿主 ClassLoader 命名空间加载（与 libdevice.so 等同域）。 */
@@ -25,11 +26,13 @@ object NativeLibLoader {
         hostContext: Context,
         packageName: String? = null,
         classLoader: ClassLoader? = null,
+        callerClass: Class<*>? = null,
     ): Boolean = ensureLoaded(
         moduleApkPath,
         hostContext.applicationInfo.dataDir,
         packageName,
         classLoader,
+        callerClass = callerClass,
     )
 
     fun ensureLoaded(
@@ -38,6 +41,7 @@ object NativeLibLoader {
         packageName: String? = null,
         classLoader: ClassLoader? = null,
         reuseHostShadowhook: Boolean = false,
+        callerClass: Class<*>? = null,
     ): Boolean {
         if (loaded) return true
         if (moduleApkPath.isBlank() || appDataDir.isBlank()) return false
@@ -65,7 +69,7 @@ object NativeLibLoader {
             if (loaded) return true
             return try {
                 purgeStaleExtract(appDataDir)
-                loadFromApk(moduleApkPath, File(appDataDir, EXTRACT_DIR), libs, loader)
+                loadFromApk(moduleApkPath, File(appDataDir, EXTRACT_DIR), libs, loader, callerClass)
             } catch (e: Throwable) {
                 loaded = false
                 XposedBridge.log("${XposedConstants.TAG}: native load failed: ${e.message}")
@@ -88,6 +92,7 @@ object NativeLibLoader {
         destDir: File,
         libs: List<String>,
         classLoader: ClassLoader,
+        callerClass: Class<*>?,
     ): Boolean {
         val abi = preferredAbi()
         if (destDir.exists()) {
@@ -109,7 +114,7 @@ object NativeLibLoader {
             }
         }
         for (libName in libs) {
-            loadNativeInHostNamespace(classLoader, File(destDir, libName).absolutePath)
+            loadNativeInHostNamespace(classLoader, File(destDir, libName).absolutePath, callerClass)
         }
         loaded = true
         XposedBridge.log(
@@ -119,15 +124,19 @@ object NativeLibLoader {
         return true
     }
 
-  /**
-   * 必须在宿主 ClassLoader 的 linker namespace 加载，禁止回退 System.load（会进模块隔离 ns）。
-   * Android 14+ 封禁 Runtime.load(path, ClassLoader)；优先走 VMRuntime.nativeLoad。
-   */
-    private fun loadNativeInHostNamespace(hostClassLoader: ClassLoader, absolutePath: String) {
+    /**
+     * 必须在宿主 ClassLoader 的 linker namespace 加载，禁止回退 System.load（会进模块隔离 ns）。
+     * Android 14+ 封禁 Runtime.load(path, ClassLoader)；走 VMRuntime.nativeLoad（反射 ClassLoader 签名）。
+     */
+    private fun loadNativeInHostNamespace(
+        hostClassLoader: ClassLoader,
+        absolutePath: String,
+        preferredCaller: Class<*>?,
+    ) {
         var lastError: Throwable? = null
         if (Build.VERSION.SDK_INT >= 34) {
             try {
-                loadViaVmRuntime(hostClassLoader, absolutePath)
+                loadViaVmRuntime(hostClassLoader, absolutePath, preferredCaller)
                 return
             } catch (e: Throwable) {
                 lastError = e
@@ -162,41 +171,101 @@ object NativeLibLoader {
         )
     }
 
-    private fun loadViaVmRuntime(hostClassLoader: ClassLoader, absolutePath: String) {
-        val vmRuntime = XposedHelpers.callStaticMethod(
-            XposedHelpers.findClass("dalvik.system.VMRuntime", null),
-            "getRuntime",
-        )
+    private fun loadViaVmRuntime(
+        hostClassLoader: ClassLoader,
+        absolutePath: String,
+        preferredCaller: Class<*>?,
+    ) {
+        val vmRuntimeClass = Class.forName("dalvik.system.VMRuntime", false, null)
+        val vmRuntime = vmRuntimeClass.getDeclaredMethod("getRuntime").invoke(null)
+        val callers = buildList {
+            preferredCaller?.let { add(it) }
+            addAll(hostCallerClasses(hostClassLoader))
+        }
         var lastError: Throwable? = null
-        for (caller in hostCallerClasses(hostClassLoader)) {
-            val argVariants = listOf(
-                arrayOf(absolutePath, hostClassLoader, caller),
-                arrayOf(absolutePath, hostClassLoader),
-            )
-            for (args in argVariants) {
+        val loaderType = ClassLoader::class.java
+        val classType = Class::class.java
+        val nativeLoad3 = findNativeLoadMethod(vmRuntimeClass, loaderType, classType, 3)
+        val nativeLoad2 = findNativeLoadMethod(vmRuntimeClass, loaderType, classType, 2)
+        for (caller in callers) {
+            if (nativeLoad3 != null) {
                 try {
-                    val err = XposedHelpers.callMethod(vmRuntime, "nativeLoad", *args) as? String
-                    if (!err.isNullOrBlank()) {
-                        throw UnsatisfiedLinkError(err)
-                    }
-                    XposedBridge.log(
-                        "${XposedConstants.TAG}: native load host-ns via VMRuntime.nativeLoad " +
-                            "args=${args.size} cl=${hostClassLoader.javaClass.name} caller=${caller.name} " +
-                            "path=$absolutePath",
-                    )
+                    invokeNativeLoad(nativeLoad3, vmRuntime, absolutePath, hostClassLoader, caller)
+                    logNativeLoadSuccess(3, hostClassLoader, caller, absolutePath)
                     return
                 } catch (e: Throwable) {
                     lastError = e
-                    XposedBridge.log(
-                        "${XposedConstants.TAG}: VMRuntime.nativeLoad(${args.size}arg," +
-                            "caller=${caller.name}) failed: ${e.message}",
-                    )
+                    logNativeLoadFailure(3, caller, e)
+                }
+            }
+            if (nativeLoad2 != null) {
+                try {
+                    invokeNativeLoad(nativeLoad2, vmRuntime, absolutePath, hostClassLoader, null)
+                    logNativeLoadSuccess(2, hostClassLoader, caller, absolutePath)
+                    return
+                } catch (e: Throwable) {
+                    lastError = e
+                    logNativeLoadFailure(2, caller, e)
                 }
             }
         }
         throw IllegalStateException(
             "cannot load native lib in host namespace: $absolutePath",
             lastError,
+        )
+    }
+
+    private fun findNativeLoadMethod(
+        vmRuntimeClass: Class<*>,
+        loaderType: Class<*>,
+        classType: Class<*>,
+        argCount: Int,
+    ): Method? {
+        return try {
+            val method = if (argCount == 3) {
+                vmRuntimeClass.getDeclaredMethod("nativeLoad", String::class.java, loaderType, classType)
+            } else {
+                vmRuntimeClass.getDeclaredMethod("nativeLoad", String::class.java, loaderType)
+            }
+            method.isAccessible = true
+            method
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun invokeNativeLoad(
+        method: Method,
+        vmRuntime: Any,
+        absolutePath: String,
+        hostClassLoader: ClassLoader,
+        caller: Class<*>?,
+    ) {
+        val err = if (caller != null && method.parameterCount == 3) {
+            method.invoke(vmRuntime, absolutePath, hostClassLoader, caller) as? String
+        } else {
+            method.invoke(vmRuntime, absolutePath, hostClassLoader) as? String
+        }
+        if (!err.isNullOrBlank()) {
+            throw UnsatisfiedLinkError(err)
+        }
+    }
+
+    private fun logNativeLoadSuccess(
+        argCount: Int,
+        hostClassLoader: ClassLoader,
+        caller: Class<*>,
+        absolutePath: String,
+    ) {
+        XposedBridge.log(
+            "${XposedConstants.TAG}: native load host-ns via VMRuntime.nativeLoad " +
+                "args=$argCount cl=${hostClassLoader.javaClass.name} caller=${caller.name} path=$absolutePath",
+        )
+    }
+
+    private fun logNativeLoadFailure(argCount: Int, caller: Class<*>, e: Throwable) {
+        XposedBridge.log(
+            "${XposedConstants.TAG}: VMRuntime.nativeLoad(${argCount}arg,caller=${caller.name}) failed: ${e.message}",
         )
     }
 

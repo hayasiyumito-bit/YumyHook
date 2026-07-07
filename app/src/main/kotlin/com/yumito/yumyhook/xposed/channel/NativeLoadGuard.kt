@@ -1,6 +1,7 @@
 package com.yumito.yumyhook.xposed.channel
 
 import com.yumito.yumyhook.xposed.config.XposedConstants
+import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.policy.NativeHookPolicy
 import de.robv.android.xposed.XC_MethodHook
@@ -63,7 +64,10 @@ object NativeLoadGuard {
         val pkg = lpparam.packageName
         if (!FourChannelGate.isActive(pkg)) return
         if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) return
+        val app = TargetContextHolder.appContext
+        val caller = app?.let { it.javaClass }
         val ok = NativeBridge.installEarly(lpparam)
+            || (caller != null && NativeBridge.retryInstallWithCaller(lpparam, caller))
         if (ok) {
             synchronized(this) { primed = true }
         }

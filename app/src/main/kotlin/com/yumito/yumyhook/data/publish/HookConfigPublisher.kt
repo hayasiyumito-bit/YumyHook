@@ -1,6 +1,7 @@
 package com.yumito.yumyhook.data.publish
 
 import android.content.Context
+import com.yumito.yumyhook.data.lsposed.RootShell
 import com.yumito.yumyhook.xposed.config.SpoofConfigFile
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import java.io.File
@@ -10,7 +11,27 @@ object HookConfigPublisher {
 
     fun publish(context: Context) {
         SpoofConfigFile.publishReadable(context)
+        mirrorViaRootIfNeeded(context)
         makePrefsWorldReadable(context)
+    }
+
+    /** 目标 App 无模块 UID 时，用 root 把配置推到 /data/local/tmp/yumyhook。 */
+    private fun mirrorViaRootIfNeeded(context: Context) {
+        val source = File(context.filesDir, SpoofConfigFile.FILE_NAME)
+        if (!source.exists() || source.length() == 0L) return
+        val mirror = SpoofConfigFile.publicMirrorFile()
+        if (mirror.exists() && mirror.length() > 0L) return
+        if (!RootShell.ensureRoot()) return
+        val dir = mirror.parentFile?.absolutePath ?: return
+        val cmd = "mkdir -p '$dir' && cp '${source.absolutePath}' '${mirror.absolutePath}' " +
+            "&& chmod 644 '${mirror.absolutePath}' && chmod 755 '$dir'"
+        val result = RootShell.exec(cmd)
+        if (result.exitCode != 0) {
+            android.util.Log.w(
+                XposedConstants.TAG,
+                "HookConfigPublisher.rootMirror failed: ${result.error.ifBlank { result.output }}",
+            )
+        }
     }
 
     /**

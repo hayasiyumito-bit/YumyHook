@@ -72,6 +72,13 @@ object ChannelInstallCoordinator {
     ) {
         val pkg = lpparam.packageName
         TargetContextHolder.bind(app)
+        if (!nativeReady && resolved.nativeActive && resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
+            if (!NativeBridge.retryInstallWithCaller(lpparam, app.javaClass)) {
+                retryNativeEarlyIfNeeded(lpparam, resolved)
+            } else {
+                nativeReady = true
+            }
+        }
         ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
         if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ATTACH)) {
             SpoofRuntime.applyChannelsAtPhase("attach", InstallPhase.APPLICATION_ATTACH, resolved.fourChannelActive)

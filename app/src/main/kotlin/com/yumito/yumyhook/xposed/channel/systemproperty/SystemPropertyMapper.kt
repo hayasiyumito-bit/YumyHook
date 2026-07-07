@@ -1,6 +1,7 @@
 package com.yumito.yumyhook.xposed.channel.systemproperty
 
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
+import com.yumito.yumyhook.xposed.stealth.common.StealthConstants
 
 /** Build 字段 ↔ ro.* 系统属性映射。 */
 object SystemPropertyMapper {
@@ -83,6 +84,28 @@ object SystemPropertyMapper {
     }
 
     fun securityProbeProperties(): Map<String, String> = SECURITY_PROBE_PROPS
+
+    /** 四通道统一取值：Build 伪装 + 安全探测项 +（可选）Root 隐藏属性。 */
+    fun resolveChannelValue(
+        key: String,
+        values: HookSpoofValues,
+        applyRootSpoof: Boolean = false,
+    ): String? {
+        if (applyRootSpoof) {
+            StealthConstants.ROOT_SPOOF_PROPERTIES[key]?.let { return it }
+        }
+        return mapProperty(key, values)
+    }
+
+    /** Native JNI 同步用：Build 伪装 + 安全项 + Root 隐藏（后者覆盖前者）。 */
+    fun allChannelProperties(values: HookSpoofValues, applyRootSpoof: Boolean): Map<String, String> {
+        val map = linkedMapOf<String, String>()
+        map.putAll(allProperties(values))
+        if (applyRootSpoof) {
+            map.putAll(StealthConstants.ROOT_SPOOF_PROPERTIES)
+        }
+        return map
+    }
 
     fun hasMapping(key: String): Boolean = key in MAPPED_PROP_KEYS
 

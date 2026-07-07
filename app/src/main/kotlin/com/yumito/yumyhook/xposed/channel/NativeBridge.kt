@@ -2,6 +2,7 @@ package com.yumito.yumyhook.xposed.channel
 
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookConfig
+import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
@@ -60,8 +61,24 @@ object NativeBridge {
         val dataDir = lpparam.appInfo.dataDir ?: return false
         lastDataDir = dataDir
         lastClassLoader = lpparam.classLoader
-        if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader)) return false
+        if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader, callerClass = null)) return false
         installHooksIfNeeded(pkg, "early", dataDir = dataDir, classLoader = lpparam.classLoader)
+        if (!hooksInstalled) return false
+        syncFromGate(HookConfig.valuesForHook(), pkg)
+        return true
+    }
+
+    /** LOAD_PACKAGE 早装失败时，用宿主 Application 作 nativeLoad caller 再试。 */
+    fun retryInstallWithCaller(lpparam: XC_LoadPackage.LoadPackageParam, caller: Class<*>): Boolean {
+        if (hooksInstalled) return true
+        val pkg = lpparam.packageName
+        if (!FourChannelGate.isActive(pkg)) return false
+        if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) return false
+        val dataDir = lpparam.appInfo.dataDir ?: return false
+        lastDataDir = dataDir
+        lastClassLoader = lpparam.classLoader
+        if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader, callerClass = caller)) return false
+        installHooksIfNeeded(pkg, "caller-retry", dataDir = dataDir, classLoader = lpparam.classLoader)
         if (!hooksInstalled) return false
         syncFromGate(HookConfig.valuesForHook(), pkg)
         return true
@@ -82,7 +99,7 @@ object NativeBridge {
         val dataDir = hostContext.applicationInfo.dataDir
         lastDataDir = dataDir
         lastClassLoader = hostContext.classLoader
-        if (!ensureNativeLoaded(dataDir, pkg, hostContext.classLoader)) return
+        if (!ensureNativeLoaded(dataDir, pkg, hostContext.classLoader, callerClass = hostContext.javaClass)) return
         installHooksIfNeeded(pkg, "context", dataDir = dataDir, classLoader = hostContext.classLoader)
         syncFromGate(HookConfig.valuesForHook(), pkg)
     }
@@ -106,8 +123,10 @@ object NativeBridge {
         if (!hooksInstalled) return
         try {
             nativeSetSpoofActive(true)
-            val props = SystemPropertyMapper.allProperties(values)
-                .mapValues { (_, v) -> if (v.length > MAX_NATIVE_PROP_LEN) "" else v }
+            val props = SystemPropertyMapper.allChannelProperties(
+                values,
+                HookFeatureConfig.current().hideRoot,
+            ).mapValues { (_, v) -> if (v.length > MAX_NATIVE_PROP_LEN) "" else v }
             nativeUpdateProperties(props.keys.toTypedArray(), props.values.toTypedArray())
             log("props synced count=${props.size} pkg=$pkg")
         } catch (e: Throwable) {
@@ -138,6 +157,7 @@ object NativeBridge {
         packageName: String,
         classLoader: ClassLoader? = null,
         reuseHostShadowhook: Boolean = false,
+        callerClass: Class<*>? = null,
     ): Boolean {
         val apk = ModulePathHolder.moduleApkPath
         if (apk.isBlank()) {
@@ -150,6 +170,7 @@ object NativeBridge {
             packageName,
             classLoader,
             reuseHostShadowhook,
+            callerClass,
         )
     }
 

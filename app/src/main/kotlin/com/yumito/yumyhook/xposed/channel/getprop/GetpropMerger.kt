@@ -3,7 +3,6 @@ package com.yumito.yumyhook.xposed.channel.getprop
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
-import com.yumito.yumyhook.xposed.stealth.common.StealthConstants
 
 /** 将真实 getprop 全量输出与伪装属性合并，避免全量 dump 仅含少量 key 暴露 Hook。 */
 object GetpropMerger {
@@ -18,11 +17,9 @@ object GetpropMerger {
             val match = LINE_PATTERN.matchEntire(trimmed) ?: continue
             merged[match.groupValues[1]] = match.groupValues[2]
         }
-        merged.putAll(SystemPropertyMapper.allProperties(values))
-        merged.putAll(SystemPropertyMapper.securityProbeProperties())
-        if (HookFeatureConfig.current().hideRoot) {
-            merged.putAll(StealthConstants.ROOT_SPOOF_PROPERTIES)
-        }
+        merged.putAll(
+            SystemPropertyMapper.allChannelProperties(values, HookFeatureConfig.current().hideRoot),
+        )
         return merged.entries.joinToString("\n") { "[${it.key}]: [${it.value}]" }
     }
 }

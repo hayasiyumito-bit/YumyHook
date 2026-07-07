@@ -22,11 +22,8 @@ object ShellOutputFilter {
         RegexOption.IGNORE_CASE,
     )
 
-    fun isGetpropCommand(command: String?): Boolean {
-        if (command.isNullOrBlank()) return false
-        val lower = command.trim().lowercase(Locale.US)
-        return lower == "getprop" || lower.startsWith("getprop ")
-    }
+    fun isGetpropCommand(command: String?): Boolean =
+        com.yumito.yumyhook.xposed.channel.getprop.GetpropCommandParser.isGetpropCommand(command)
 
     fun filterGetpropOutput(raw: String): String {
         return raw.lineSequence()

@@ -1,4 +1,11 @@
 package com.yumito.yumyhook.xposed.stealth.root
+
+import com.yumito.yumyhook.xposed.channel.getprop.GetpropCommandParser
+import com.yumito.yumyhook.xposed.channel.getprop.GetpropMerger
+import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
+import com.yumito.yumyhook.xposed.config.HookConfig
+import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XC_MethodHook
@@ -79,14 +86,34 @@ object ShellProbeStealthHook {
                 ShellOutputFilter.processWithStdout(ShellOutputFilter.filterPsOutput(raw))
             }
             ShellOutputFilter.isGetpropCommand(joined) -> {
-                val raw = HookReentryGuard.runShellProbeBypass {
-                    Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", joined))
-                        .inputStream.bufferedReader().readText()
+                if (FourChannelGate.isActive()) {
+                    spoofGetpropOutput(joined)
+                } else {
+                    val raw = HookReentryGuard.runShellProbeBypass {
+                        Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", joined))
+                            .inputStream.bufferedReader().readText()
+                    }
+                    ShellOutputFilter.processWithStdout(ShellOutputFilter.filterGetpropOutput(raw))
                 }
-                ShellOutputFilter.processWithStdout(ShellOutputFilter.filterGetpropOutput(raw))
             }
             else -> null
         }
+    }
+
+    private fun spoofGetpropOutput(command: String): Process {
+        val key = GetpropCommandParser.parseKey(command)
+        val values = HookConfig.refreshHookCacheIfStale()
+        val hideRoot = HookFeatureConfig.current().hideRoot
+        val output = if (key == null) {
+            val raw = HookReentryGuard.runGetpropBypass {
+                Runtime.getRuntime().exec(arrayOf("/system/bin/getprop"))
+                    .inputStream.bufferedReader().readText()
+            }
+            GetpropMerger.merge(raw, values)
+        } else {
+            SystemPropertyMapper.resolveChannelValue(key, values, hideRoot).orEmpty()
+        }
+        return ShellOutputFilter.processWithStdout(output)
     }
 
     private fun shouldIntercept(command: String?): Boolean {
@@ -110,6 +137,7 @@ object ShellProbeStealthHook {
                     param.result = it
                     return
                 }
+                if (FourChannelGate.isActive() && GetpropCommandParser.isGetpropCommand(joined)) return
                 if (!shouldInterceptArgv(argv) && !shouldIntercept(joined)) return
                 param.result = emptyStdoutProcess()
             } finally {

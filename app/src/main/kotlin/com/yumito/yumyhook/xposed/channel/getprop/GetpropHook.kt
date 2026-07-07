@@ -17,7 +17,11 @@ import java.io.File
 /** 拦截 shell getprop；单 key 伪装，全量 getprop 合并真实输出。 */
 object GetpropHook {
 
-    fun install(@Suppress("UNUSED_PARAMETER") lpparam: XC_LoadPackage.LoadPackageParam) {
+    @Volatile
+    private var hostPackage: String = ""
+
+    fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
+        hostPackage = lpparam.packageName
         val runtimeClass = Runtime::class.java
         val execSignatures: Array<Array<Any>> = arrayOf(
             arrayOf(String::class.java),
@@ -55,10 +59,11 @@ object GetpropHook {
     }
 
     private fun spoofOutput(key: String?, values: HookSpoofValues): String {
+        val hideRoot = HookFeatureConfig.current().hideRoot
         if (key.isNullOrBlank()) {
             return GetpropMerger.merge(runRealGetprop(), values)
         }
-        return SystemPropertyMapper.mapProperty(key, values) ?: ""
+        return SystemPropertyMapper.resolveChannelValue(key, values, hideRoot) ?: ""
     }
 
     private fun runRealGetprop(): String {
@@ -85,12 +90,12 @@ object GetpropHook {
         return true
     }
 
-    private class GetpropInterceptor : XC_MethodHook() {
+    private class GetpropInterceptor : XC_MethodHook(PRIORITY_LOWEST) {
         override fun beforeHookedMethod(param: MethodHookParam) {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
-                if (!FourChannelGate.isActive()) return
+                if (!FourChannelGate.isActive(hostPackage)) return
                 val parsed = parseExecArgs(param.args) ?: return
                 if (!applySpoofedGetprop(parsed.second) { param.result = Runtime.getRuntime().exec(it) }) return
             } finally {
@@ -99,12 +104,12 @@ object GetpropHook {
         }
     }
 
-    private class GetpropProcessBuilderInterceptor : XC_MethodHook() {
+    private class GetpropProcessBuilderInterceptor : XC_MethodHook(PRIORITY_LOWEST) {
         override fun beforeHookedMethod(param: MethodHookParam) {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
-                if (!FourChannelGate.isActive()) return
+                if (!FourChannelGate.isActive(hostPackage)) return
                 val builder = param.thisObject as ProcessBuilder
                 val parsed = parseCommandParts(builder.command()) ?: return
                 if (!applySpoofedGetprop(parsed.second) { builder.command(*it) }) return
@@ -128,12 +133,7 @@ object GetpropHook {
     }
 
     private fun parseCommandText(command: String): Pair<Boolean, String?>? {
-        val trimmed = command.trim()
-        if (!trimmed.contains("getprop")) return null
-        val tokens = trimmed.split(Regex("\\s+"))
-        val getpropIndex = tokens.indexOfFirst { it == "getprop" || it.endsWith("/getprop") }
-        if (getpropIndex < 0) return true to null
-        val key = tokens.getOrNull(getpropIndex + 1)?.takeIf { !it.startsWith("-") }
-        return true to key
+        if (!GetpropCommandParser.isGetpropCommand(command)) return null
+        return true to GetpropCommandParser.parseKey(command)
     }
 }

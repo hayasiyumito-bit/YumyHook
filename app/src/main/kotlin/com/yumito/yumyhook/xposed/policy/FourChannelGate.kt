@@ -14,8 +14,9 @@ object FourChannelGate {
 
     fun currentFeatures(): HookFeatures = HookFeatureConfig.refreshIfStale()
 
-    fun isActive(packageName: String? = TargetContextHolder.packageName): Boolean {
+    fun isActive(packageName: String? = null): Boolean {
         if (!HookConfig.isEnabledForHook()) return false
-        return FourChannelPolicy.isEnabledFor(packageName, currentFeatures())
+        val pkg = (packageName ?: TargetContextHolder.packageName)?.takeIf { it.isNotBlank() } ?: return false
+        return FourChannelPolicy.isEnabledFor(pkg, currentFeatures())
     }
 }

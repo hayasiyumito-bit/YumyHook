@@ -97,6 +97,7 @@ class XposedEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
     private fun ensureModuleDefaults(app: Application) {
         try {
             HookProfilesStore.loadDocument(app)
+            com.yumito.yumyhook.data.publish.HookConfigPublisher.publish(app)
         } catch (e: Throwable) {
             XposedBridge.log("${XposedConstants.TAG}: ensureModuleDefaults failed: ${e.message}")
         }
