@@ -79,6 +79,9 @@ object ChannelInstallCoordinator {
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ATTACH) {
             installStealth(lpparam, pkg, InstallPhase.APPLICATION_ATTACH)
         }
+        if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
+            retryNativeEarlyIfNeeded(lpparam, resolved)
+        }
         if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
             ensureNative(lpparam, app, resolved)
         }
@@ -122,6 +125,9 @@ object ChannelInstallCoordinator {
         }
         if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ON_CREATE) {
             ensureNative(lpparam, app, resolved)
+        }
+        if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
+            retryNativeEarlyIfNeeded(lpparam, resolved)
         }
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
             ensureNativeDeferred(pkg, resolved)
@@ -203,6 +209,14 @@ object ChannelInstallCoordinator {
         if (HostShadowhookLoadGuard.tryInstallFromMaps("onCreate")) {
             nativeReady = true
         }
+    }
+
+    private fun retryNativeEarlyIfNeeded(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        resolved: ResolvedChannelStrategy,
+    ) {
+        if (nativeReady || !resolved.nativeActive) return
+        ensureNativeEarly(lpparam, resolved)
     }
 
     private fun ensureNativeEarly(

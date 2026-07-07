@@ -38,6 +38,12 @@ object HostShadowhookDetector {
             l.contains("libbugly") ||
             l.contains("libgaea") ||
             l.contains("crashsdk") ||
-            l.contains("pairipcore")
+            l.contains("pairipcore") ||
+            l.contains("rmonitor") ||
+            l.contains("qimei") ||
+            l.contains("marsxlog") ||
+            l.contains("libqsec") ||
+            l.contains("libmsfboot") ||
+            l.contains("libtencentloc")
     }
 }

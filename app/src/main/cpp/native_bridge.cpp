@@ -289,7 +289,9 @@ static bool host_crash_lib_mapped() {
         }
         if (line.find("wechatcrash") != std::string::npos ||
             line.find("libbugly") != std::string::npos ||
-            line.find("crashsdk") != std::string::npos) {
+            line.find("crashsdk") != std::string::npos ||
+            line.find("rmonitor") != std::string::npos ||
+            line.find("qimei") != std::string::npos) {
             return true;
         }
     }

@@ -9,12 +9,16 @@ import de.robv.android.xposed.XC_MethodHook
 
 /**
  * 宿主 shadowhook App：在 bindApplication 结束后读 maps 装 Native；
+ * 并在宿主 loadLibrary0 时重试（QQ/微信 crash 库常晚于 onCreate 映射）。
  * 不 hook System.load / Runtime.load0，避免干扰 libwechatcrash JNI_OnLoad。
  */
 object HostShadowhookLoadGuard {
 
     @Volatile
     private var postBindScheduled = false
+
+    @Volatile
+    private var loadLibraryWatcherInstalled = false
 
     @Volatile
     private var boundPkg = ""
@@ -37,6 +41,7 @@ object HostShadowhookLoadGuard {
         synchronized(this) {
             if (postBindScheduled) return
             hookBindApplicationEnd()
+            installLoadLibraryWatcher()
             postBindScheduled = true
             XposedBridge.log("${XposedConstants.TAG}: host shadowhook post-bind watcher installed")
         }
@@ -79,6 +84,42 @@ object HostShadowhookLoadGuard {
             )
         } catch (e: Throwable) {
             XposedBridge.log("${XposedConstants.TAG}: post-bind watcher skip: ${e.message}")
+        }
+    }
+
+    /**
+     * 宿主每次 loadLibrary0 后重试 maps 检测（与 [NativeLoadGuard] 相同限定：仅宿主 CL）。
+     * QQ/微信主进程常在 bind 之后才映射 rmonitor / wechatcrash。
+     */
+    private fun installLoadLibraryWatcher() {
+        if (loadLibraryWatcherInstalled) return
+        val cl = boundClassLoader ?: return
+        synchronized(this) {
+            if (loadLibraryWatcherInstalled) return
+            try {
+                XposedHelpers.findAndHookMethod(
+                    Runtime::class.java,
+                    "loadLibrary0",
+                    Class::class.java,
+                    String::class.java,
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            if (param.throwable != null) return
+                            val loader = param.args.getOrNull(0) as? ClassLoader ?: return
+                            if (loader !== cl) return
+                            if (NativeBridge.isHooksInstalled()) {
+                                NativeStealthBridge.install(boundPkg, boundDataDir, cl)
+                                return
+                            }
+                            tryInstallFromMaps("post-loadLib")
+                        }
+                    },
+                )
+                loadLibraryWatcherInstalled = true
+                XposedBridge.log("${XposedConstants.TAG}: host shadowhook loadLibrary0 watcher installed")
+            } catch (e: Throwable) {
+                XposedBridge.log("${XposedConstants.TAG}: loadLibrary0 watcher skip: ${e.message}")
+            }
         }
     }
 }

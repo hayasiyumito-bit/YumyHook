@@ -54,15 +54,18 @@ object NativeLoadGuard {
     }
 
     private fun primeNativeOnce() {
-        if (primed || NativeBridge.isHooksInstalled()) return
+        if (NativeBridge.isHooksInstalled()) return
         val lpparam = hostParam ?: return
         synchronized(this) {
-            if (primed || NativeBridge.isHooksInstalled()) return
-            primed = true
+            if (NativeBridge.isHooksInstalled()) return
+            if (primed) return
         }
         val pkg = lpparam.packageName
         if (!FourChannelGate.isActive(pkg)) return
         if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) return
-        NativeBridge.installEarly(lpparam)
+        val ok = NativeBridge.installEarly(lpparam)
+        if (ok) {
+            synchronized(this) { primed = true }
+        }
     }
 }
