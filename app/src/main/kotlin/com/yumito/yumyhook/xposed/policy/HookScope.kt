@@ -11,4 +11,7 @@ object HookScope {
 
     fun shouldHook(packageName: String): Boolean =
         packageName != XposedConstants.MODULE_PACKAGE
+
+    fun isFrameworkProcess(packageName: String): Boolean =
+        packageName in XposedConstants.FRAMEWORK_SCOPE_PACKAGES
 }

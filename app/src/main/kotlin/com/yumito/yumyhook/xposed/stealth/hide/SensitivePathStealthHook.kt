@@ -14,13 +14,21 @@ import java.io.FileNotFoundException
  */
 object SensitivePathStealthHook {
 
+    @Volatile
+    private var installed = false
+
     fun install() {
-        hookFileStatMethods()
-        hookConstructor("java.io.FileInputStream", String::class.java)
-        hookConstructor("java.io.FileInputStream", File::class.java)
-        hookConstructor("java.io.FileOutputStream", String::class.java)
-        hookConstructor("java.io.FileReader", String::class.java)
-        hookConstructor("java.io.FileReader", File::class.java)
+        if (installed) return
+        synchronized(this) {
+            if (installed) return
+            hookFileStatMethods()
+            hookConstructor("java.io.FileInputStream", String::class.java)
+            hookConstructor("java.io.FileInputStream", File::class.java)
+            hookConstructor("java.io.FileOutputStream", String::class.java)
+            hookConstructor("java.io.FileReader", String::class.java)
+            hookConstructor("java.io.FileReader", File::class.java)
+            installed = true
+        }
     }
 
     private fun hookFileStatMethods() {

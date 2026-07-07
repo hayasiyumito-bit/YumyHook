@@ -63,4 +63,9 @@
     <string name="incompatible_apps_hint">以下 App 自带强完整性校验（如 Google Play Integrity / 原生反 Hook），与 LSPosed 模块同进程时极易启动即崩溃。请勿在 LSPosed 作用域中勾选它们；本模块也无法对其实施有效伪装。</string>
     <string name="incompatible_app_twitter">X（Twitter） · com.twitter.android</string>
     <string name="incompatible_app_twitter_detail">内置 libpairipcore 完整性库，勾选作用域后常见 SIGSEGV 闪退。请从 LSPosed 作用域移除 Twitter，改用其他 App 验证伪装效果。</string>
+
+    <string name="framework_scope_title">建议勾选系统框架</string>
+    <string name="framework_scope_hint">开启「隐藏 Root / LSPosed」时，请在 LSPosed 作用域额外勾选 Android 系统框架（android）。框架进程内仅安装藏包、Root/Magisk 属性与 shell 探测拦截；不装 Native / 四通道 Build 伪装，避免 system_server 崩溃。</string>
+    <string name="framework_scope_enabled">系统框架作用域：已勾选</string>
+    <string name="framework_scope_missing">系统框架作用域：未勾选（藏包与跨进程 Root 检测可能失效）</string>
 </resources>

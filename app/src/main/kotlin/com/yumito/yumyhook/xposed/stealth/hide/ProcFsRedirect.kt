@@ -27,6 +27,11 @@ object ProcFsRedirect {
                 prefix = "mountinfo_filtered_",
             ) { raw -> ProcMapsFilter.filter(raw) }
 
+            ProcFsPaths.Kind.MOUNTS -> createFilteredFile(
+                StealthConstants.PROC_SELF_MOUNTS,
+                prefix = "mounts_filtered_",
+            ) { raw -> ProcMapsFilter.filter(raw) }
+
             ProcFsPaths.Kind.MEM, null -> null
         }
     }

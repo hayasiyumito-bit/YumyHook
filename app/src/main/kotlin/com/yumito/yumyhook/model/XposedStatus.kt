@@ -9,4 +9,6 @@ data class XposedStatus(
     val moduleEnabled: Boolean,
     val targetPackage: String,
     val hookEnabled: Boolean,
+    val frameworkScopeEnabled: Boolean,
+    val stealthNeedsFrameworkScope: Boolean,
 )

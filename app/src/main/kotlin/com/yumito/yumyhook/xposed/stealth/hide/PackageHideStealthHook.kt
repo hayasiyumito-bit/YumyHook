@@ -3,7 +3,6 @@ package com.yumito.yumyhook.xposed.stealth.hide
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import com.yumito.yumyhook.xposed.config.XposedConstants
-import com.yumito.yumyhook.xposed.stealth.common.StealthConstants
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -12,13 +11,21 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 /** 系统层：PackageManager 列表中隐藏本模块包名。 */
 object PackageHideStealthHook {
 
+    @Volatile
+    private var installed = false
+
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val pmClass = "android.app.ApplicationPackageManager"
-        installListHook(lpparam, pmClass, "getInstalledApplications", Integer.TYPE)
-        installListHook(lpparam, pmClass, "getInstalledPackages", Integer.TYPE)
-        installPackageInfoHook(lpparam, pmClass, "getPackageInfo", String::class.java, Integer.TYPE)
-        installApplicationInfoHook(lpparam, pmClass, "getApplicationInfo", String::class.java, Integer.TYPE)
-        installResolveHook(lpparam, pmClass)
+        if (installed) return
+        synchronized(this) {
+            if (installed) return
+            val pmClass = "android.app.ApplicationPackageManager"
+            installListHook(lpparam, pmClass, "getInstalledApplications", Integer.TYPE)
+            installListHook(lpparam, pmClass, "getInstalledPackages", Integer.TYPE)
+            installPackageInfoHook(lpparam, pmClass, "getPackageInfo", String::class.java, Integer.TYPE)
+            installApplicationInfoHook(lpparam, pmClass, "getApplicationInfo", String::class.java, Integer.TYPE)
+            installResolveHook(lpparam, pmClass)
+            installed = true
+        }
     }
 
     private fun installResolveHook(lpparam: XC_LoadPackage.LoadPackageParam, className: String) {
@@ -37,7 +44,7 @@ object PackageHideStealthHook {
                         param.result = list.filterNot { item ->
                             val pkg = XposedHelpers.getObjectField(item, "activityInfo")
                                 ?.let { XposedHelpers.getObjectField(it, "packageName") as? String }
-                            pkg in StealthConstants.HIDDEN_PACKAGES
+                            pkg in StealthPackageFilter.hiddenPackages()
                         }
                     }
                 },
@@ -59,7 +66,7 @@ object PackageHideStealthHook {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val list = param.result as? List<*> ?: return
                         param.result = list.filterNot { item ->
-                            packageNameOf(item) in StealthConstants.HIDDEN_PACKAGES
+                            StealthPackageFilter.isHidden(packageNameOf(item))
                         }
                     }
                 },
@@ -86,7 +93,7 @@ object PackageHideStealthHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val pkg = param.args[0] as? String ?: return
-                        if (pkg in StealthConstants.HIDDEN_PACKAGES) {
+                        if (StealthPackageFilter.isHidden(pkg)) {
                             param.throwable = android.content.pm.PackageManager.NameNotFoundException(pkg)
                         }
                     }
@@ -114,7 +121,7 @@ object PackageHideStealthHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val pkg = param.args[0] as? String ?: return
-                        if (pkg in StealthConstants.HIDDEN_PACKAGES) {
+                        if (StealthPackageFilter.isHidden(pkg)) {
                             param.throwable = android.content.pm.PackageManager.NameNotFoundException(pkg)
                         }
                     }

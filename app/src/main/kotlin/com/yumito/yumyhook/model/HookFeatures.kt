@@ -279,7 +279,7 @@ data class HookFeatures(
             HookFeatureItem("spoofFullDeviceId", "启用设备标识伪装", "IMEI / IMSI / 手机号 / Android ID（见下方设备标识）", "高级保护"),
             HookFeatureItem("simSimulation", "启用 SIM 卡伪装", "运营商 MCC/MNC、名称、国家（见下方 SIM 卡）", "高级保护"),
             HookFeatureItem("hideLsposed", "隐藏 LSPosed", "maps / 特征文件 / 模块列表", "高级保护"),
-            HookFeatureItem("hideRoot", "隐藏 Root", "CheckEmu root 探测", "高级保护"),
+            HookFeatureItem("hideRoot", "隐藏 Root", "su/Magisk 路径、属性、包名、shell", "高级保护"),
             HookFeatureItem("hideAirplaneMode", "隐藏飞行模式状态", "Settings.Global", "高级保护"),
             HookFeatureItem("hideProxy", "隐藏活动代理连接", "System.getProperty 代理", "高级保护"),
             HookFeatureItem("hideWifiNetworks", "隐藏 Wi-Fi 网络列表", "getScanResults", "高级保护"),

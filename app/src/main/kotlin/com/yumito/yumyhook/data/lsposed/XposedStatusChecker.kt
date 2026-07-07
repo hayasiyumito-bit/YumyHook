@@ -63,6 +63,9 @@ object XposedStatusChecker {
             rootState?.scopedPackages.orEmpty()
         }
         val scopeHint = buildScopeHint(context, scopedPackages)
+        val frameworkScopeEnabled = LsposedScopeReader.isFrameworkScoped(scopedPackages)
+        val features = HookProfilesStore.loadFeatures(context)
+        val stealthNeedsFrameworkScope = features.hideRoot || features.hideLsposed
 
         return XposedStatus(
             frameworkActive = frameworkActive,
@@ -72,6 +75,8 @@ object XposedStatusChecker {
             moduleEnabled = moduleEnabled,
             targetPackage = scopeHint,
             hookEnabled = HookProfilesStore.isHookEnabled(context),
+            frameworkScopeEnabled = frameworkScopeEnabled,
+            stealthNeedsFrameworkScope = stealthNeedsFrameworkScope,
         )
     }
 

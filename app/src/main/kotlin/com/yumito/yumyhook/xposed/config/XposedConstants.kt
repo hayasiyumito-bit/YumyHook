@@ -23,6 +23,8 @@ object XposedConstants {
     )
 
     val HOOK_SCOPE_HINT: String = "LSPosed 作用域内所有 App"
+    val FRAMEWORK_SCOPE_PACKAGES: List<String> = listOf("android", "system")
+    const val FRAMEWORK_SCOPE_LABEL = "Android 系统框架"
     const val TAG = "YumyHook"
     const val XPOSED_API_VERSION = 82
 
@@ -39,5 +41,5 @@ object XposedConstants {
     const val PREF_FEATURES_JSON = "spoof_features_json"
 
     /** 递增；logcat 搜此值确认 LSPosed 已加载新 dex */
-    const val HOOK_REV = 55
+    const val HOOK_REV = 57
 }

@@ -14,6 +14,9 @@ object LsposedScopeReader {
         return fallbackInstalled(context)
     }
 
+    fun isFrameworkScoped(scopedPackages: List<String>): Boolean =
+        scopedPackages.any { it in XposedConstants.FRAMEWORK_SCOPE_PACKAGES }
+
     private fun fallbackInstalled(context: Context): List<String> {
         return XposedConstants.RECOMMENDED_SCOPE_PACKAGES.filter { pkg ->
             PackageVisibility.isPackageInstalled(context, pkg)

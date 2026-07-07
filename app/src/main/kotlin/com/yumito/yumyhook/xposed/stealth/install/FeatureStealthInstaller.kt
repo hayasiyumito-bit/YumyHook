@@ -7,6 +7,7 @@ import com.yumito.yumyhook.xposed.stealth.bluetooth.BluetoothStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.UptimeStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.WebSettingsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.EnvStealthHook
+import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.stealth.hide.PackageHideStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.ProcMapsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.SensitivePathStealthHook
@@ -20,6 +21,8 @@ import com.yumito.yumyhook.xposed.stealth.network.VpnStealthHook
 import com.yumito.yumyhook.xposed.stealth.root.AdbStealthHook
 import com.yumito.yumyhook.xposed.stealth.root.DebugStealthHook
 import com.yumito.yumyhook.xposed.stealth.root.DeveloperOptionsStealthHook
+import com.yumito.yumyhook.xposed.stealth.root.RootBuildStealthHook
+import com.yumito.yumyhook.xposed.stealth.root.RootPropertyStealthHook
 import com.yumito.yumyhook.xposed.stealth.root.ShellProbeStealthHook
 import com.yumito.yumyhook.xposed.stealth.telephony.TelephonyStealthHook
 import com.yumito.yumyhook.xposed.stealth.wifi.WifiStealthHook
@@ -41,6 +44,14 @@ object FeatureStealthInstaller {
             XposedFingerprintStealthHook.install()
             ShellProbeStealthHook.install()
         }
+        if (f.hideRoot) {
+            SensitivePathStealthHook.install()
+            RootPropertyStealthHook.install()
+            RootBuildStealthHook.install()
+            PackageHideStealthHook.install(lpparam)
+            ShellProbeStealthHook.install()
+            NativeStealthBridge.install(lpparam)
+        }
         if (f.hideDeveloperOptions || f.hideRoot) {
             AdbStealthHook.install(lpparam)
         }
@@ -48,9 +59,6 @@ object FeatureStealthInstaller {
             DeveloperOptionsStealthHook.install()
         }
         DebugStealthHook.install(lpparam)
-        if (f.hideRoot && !f.hideLsposed) {
-            ShellProbeStealthHook.install()
-        }
         if (f.hideVpn) VpnStealthHook.install()
         if (f.spoofInstallSourcePlay) InstallSourceStealthHook.install(lpparam)
         if (f.hideAirplaneMode) AirplaneModeStealthHook.install()

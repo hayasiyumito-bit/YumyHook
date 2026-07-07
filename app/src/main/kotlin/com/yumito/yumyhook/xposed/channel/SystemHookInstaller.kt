@@ -9,12 +9,23 @@ import com.yumito.yumyhook.xposed.channel.strategy.ChannelDiagLog
 import com.yumito.yumyhook.xposed.channel.strategy.ChannelInstallCoordinator
 import com.yumito.yumyhook.xposed.channel.strategy.StrategyResolver
 import com.yumito.yumyhook.xposed.policy.HookScope
+import com.yumito.yumyhook.xposed.stealth.install.FrameworkStealthInstaller
 
 /** 系统层 Hook 统一安装入口（不 Hook 任何目标 App 业务类）。 */
 object SystemHookInstaller {
 
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
         HookConfig.refreshHookCache()
+        HookFeatureConfig.refresh()
+        if (HookScope.isFrameworkProcess(lpparam.packageName)) {
+            de.robv.android.xposed.XposedBridge.log(
+                "${XposedConstants.TAG}: hooks rev=${XposedConstants.HOOK_REV} " +
+                    "pkg=${lpparam.packageName} mode=framework-stealth-only " +
+                    "lineage=${ProjectAttribution.LINEAGE_FINGERPRINT}",
+            )
+            FrameworkStealthInstaller.install(lpparam)
+            return
+        }
         val features = HookFeatureConfig.refresh()
         val resolved = StrategyResolver.resolve(lpparam.packageName, features)
         ChannelDiagLog.strategy(lpparam.packageName, resolved)

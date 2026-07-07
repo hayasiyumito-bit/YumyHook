@@ -7,12 +7,23 @@ import de.robv.android.xposed.XposedHelpers
 import java.io.File
 
 /**
- * 拦截 CheckEmu.buildRootIndicators 中的 `Cmd.exe("which su")` 等 shell 探测。
- * Cmd.exe 使用 Runtime.exec(String[]{"/bin/sh","-c",cmd})。
+ * 拦截 Root / Magisk shell 探测（Runtime.exec / ProcessBuilder）。
  */
 object ShellProbeStealthHook {
 
+    @Volatile
+    private var installed = false
+
     fun install() {
+        if (installed) return
+        synchronized(this) {
+            if (installed) return
+            installExecHooks()
+            installed = true
+        }
+    }
+
+    private fun installExecHooks() {
         val runtimeClass = Runtime::class.java
         val execSignatures: Array<Array<Any>> = arrayOf(
             arrayOf(String::class.java),
@@ -56,13 +67,17 @@ object ShellProbeStealthHook {
         return ShellProbeFilter.shouldSanitize(sub) || ShellProbeFilter.shouldSanitize(command)
     }
 
+    private fun shouldInterceptArgv(parts: List<String>): Boolean {
+        return ShellProbeFilter.shouldSanitizeArgv(parts)
+    }
+
     private class ShellProbeInterceptor : XC_MethodHook() {
         override fun beforeHookedMethod(param: MethodHookParam) {
             if (HookReentryGuard.isShellProbeBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
-                val command = commandText(param.args) ?: return
-                if (!shouldIntercept(command)) return
+                val argv = argvText(param.args) ?: return
+                if (!shouldInterceptArgv(argv) && !shouldIntercept(argv.joinToString(" "))) return
                 param.result = emptyStdoutProcess()
             } finally {
                 HookReentryGuard.exit()
@@ -76,8 +91,8 @@ object ShellProbeStealthHook {
             if (!HookReentryGuard.enter()) return
             try {
                 val builder = param.thisObject as ProcessBuilder
-                val command = ShellProbeFilter.parseShellCommand(builder.command()) ?: return
-                if (!shouldIntercept(command)) return
+                val parts = builder.command()
+                if (!shouldInterceptArgv(parts)) return
                 builder.command("/system/bin/sh", "-c", ":")
             } finally {
                 HookReentryGuard.exit()
@@ -85,10 +100,10 @@ object ShellProbeStealthHook {
         }
     }
 
-    private fun commandText(args: Array<Any?>): String? {
+    private fun argvText(args: Array<Any?>): List<String>? {
         return when (val first = args.firstOrNull()) {
-            is String -> first
-            is Array<*> -> ShellProbeFilter.parseShellCommand(first.map { it.toString() })
+            is String -> listOf(first)
+            is Array<*> -> first.map { it.toString() }
             else -> null
         }
     }

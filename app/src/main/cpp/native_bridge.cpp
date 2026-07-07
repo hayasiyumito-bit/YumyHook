@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <link.h>
 #include <sstream>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define LOG_TAG "YumyHookNative"
@@ -457,7 +458,8 @@ static std::string g_proc_cache_dir;
 static const char *kProcFilterKeywords[] = {
     "frida", "xposed", "lsposed", "lspatch", "substrate", "yumyhook", "yumyhook_native",
     "libyumyhook", "yumito", "lspd", "liblspd", "edxposed", "riru", "libriru", "zygisk",
-    "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", nullptr,
+        "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", "magisk", "kernelsu",
+        "supersu", "busybox", nullptr,
 };
 
 static std::string to_lower_ascii(std::string value) {
@@ -522,7 +524,7 @@ static std::string filter_proc_status_content(const std::string &raw) {
     return out.str();
 }
 
-enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MEM };
+enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM };
 
 static ProcPathKind classify_proc_path(const char *path) {
     if (path == nullptr || strstr(path, "/proc/") == nullptr) {
@@ -537,6 +539,9 @@ static ProcPathKind classify_proc_path(const char *path) {
     }
     if (len >= 10 && strcmp(path + len - 10, "/mountinfo") == 0) {
         return ProcPathKind::MOUNTINFO;
+    }
+    if (len >= 7 && strcmp(path + len - 7, "/mounts") == 0) {
+        return ProcPathKind::MOUNTS;
     }
     if (len >= 5 && strcmp(path + len - 5, "/maps") == 0) {
         return ProcPathKind::MAPS;
@@ -569,6 +574,8 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
         source = "/proc/self/status";
     } else if (kind == ProcPathKind::MOUNTINFO) {
         source = "/proc/self/mountinfo";
+    } else if (kind == ProcPathKind::MOUNTS) {
+        source = "/proc/self/mounts";
     }
     const std::string raw = read_file_to_string(source);
     if (raw.empty()) {
@@ -582,6 +589,8 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
         tag = "status";
     } else if (kind == ProcPathKind::MOUNTINFO) {
         tag = "mountinfo";
+    } else if (kind == ProcPathKind::MOUNTS) {
+        tag = "mounts";
     }
     static std::atomic<uint32_t> seq{0};
     const uint32_t id = seq.fetch_add(1, std::memory_order_relaxed);
@@ -603,7 +612,7 @@ static bool is_sensitive_lib_name(const char *name) {
     const std::string lower = to_lower_ascii(name);
     static const char *kLibs[] = {
         "shadowhook", "yumyhook", "xposed", "lsposed", "frida", "riru", "lspd", "zygisk",
-        "edxposed", "substrate", "whale", "bytehook", nullptr,
+        "edxposed", "substrate", "whale", "bytehook", "magisk", "kernelsu", "supersu", "busybox", nullptr,
     };
     for (const char **lib = kLibs; *lib != nullptr; ++lib) {
         if (lower.find(*lib) != std::string::npos) {
@@ -630,6 +639,28 @@ static bool is_sensitive_env_value(const char *value) {
     const std::string lower = to_lower_ascii(value);
     static const char *kMarkers[] = {
         "xposed", "lsposed", "frida", "magisk", "riru", "zygisk", "shadowhook", "yumyhook", nullptr,
+    };
+    for (const char **marker = kMarkers; *marker != nullptr; ++marker) {
+        if (lower.find(*marker) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool is_root_sensitive_path(const char *path) {
+    if (path == nullptr || path[0] == '\0') {
+        return false;
+    }
+    const std::string lower = to_lower_ascii(path);
+    if (lower.size() >= 3 && lower.compare(lower.size() - 3, 3, "/su") == 0) {
+        return true;
+    }
+    if (lower.find("/magisk") != std::string::npos) {
+        return true;
+    }
+    static const char *kMarkers[] = {
+        "/data/adb/", "busybox", "kernelsu", "supersu", "daemonsu", "/.magisk", nullptr,
     };
     for (const char **marker = kMarkers; *marker != nullptr; ++marker) {
         if (lower.find(*marker) != std::string::npos) {
@@ -667,6 +698,25 @@ static int hooked_dladdr(const void *addr, Dl_info *info) {
         info->dli_saddr = nullptr;
     }
     return rc;
+}
+
+static int (*orig_access)(const char *, int) = nullptr;
+static int (*orig_stat)(const char *, struct stat *) = nullptr;
+
+static int hooked_access(const char *pathname, int mode) {
+    if (is_root_sensitive_path(pathname)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_access(pathname, mode);
+}
+
+static int hooked_stat(const char *pathname, struct stat *buf) {
+    if (is_root_sensitive_path(pathname)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_stat(pathname, buf);
 }
 
 static int (*orig_open)(const char *, int, ...) = nullptr;
@@ -833,6 +883,16 @@ static bool install_proc_stealth_hooks() {
     orig = nullptr;
     if (hook_sym("libdl.so", "dladdr", reinterpret_cast<void *>(hooked_dladdr), &orig, "dladdr(stealth)")) {
         orig_dladdr = reinterpret_cast<int (*)(const void *, Dl_info *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "access", reinterpret_cast<void *>(hooked_access), &orig, "access(root)")) {
+        orig_access = reinterpret_cast<int (*)(const char *, int)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "stat", reinterpret_cast<void *>(hooked_stat), &orig, "stat(root)")) {
+        orig_stat = reinterpret_cast<int (*)(const char *, struct stat *)>(orig);
         any = true;
     }
     g_proc_stealth_installed = any;

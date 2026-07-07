@@ -159,6 +159,49 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:visibility="@{viewModel.status.stealthNeedsFrameworkScope ? View.VISIBLE : View.GONE}"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp"
+                    app:strokeColor="?attr/colorPrimary"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/framework_scope_title"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            android:textColor="?attr/colorPrimary"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/framework_scope_hint"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?android:attr/textColorSecondary" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="@{viewModel.status.frameworkScopeEnabled ? @string/framework_scope_enabled : @string/framework_scope_missing}"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="@{viewModel.status.frameworkScopeEnabled ? @android:color/holo_green_dark : @android:color/holo_red_dark}"
+                            tools:text="系统框架作用域：未勾选" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="2dp">
 
