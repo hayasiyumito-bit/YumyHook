@@ -6,6 +6,7 @@ import com.yumito.yumyhook.xposed.stealth.airplane.AirplaneModeStealthHook
 import com.yumito.yumyhook.xposed.stealth.bluetooth.BluetoothStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.UptimeStealthHook
 import com.yumito.yumyhook.xposed.stealth.device.WebSettingsStealthHook
+import com.yumito.yumyhook.xposed.stealth.hide.EnvStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.PackageHideStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.ProcMapsStealthHook
 import com.yumito.yumyhook.xposed.stealth.hide.SensitivePathStealthHook
@@ -35,6 +36,7 @@ object FeatureStealthInstaller {
         if (f.hideLsposed) {
             ProcMapsStealthHook.install()
             SensitivePathStealthHook.install()
+            EnvStealthHook.install()
             PackageHideStealthHook.install(lpparam)
             XposedFingerprintStealthHook.install()
             ShellProbeStealthHook.install()

@@ -35,6 +35,15 @@ object StealthConstants {
 
     const val PROC_SELF_MAPS = "/proc/self/maps"
     const val PROC_SELF_STATUS = "/proc/self/status"
+    const val PROC_SELF_MOUNTINFO = "/proc/self/mountinfo"
+
+    val HIDDEN_PROBE_PREFIXES: List<String> = listOf(
+        "/data/adb/modules/",
+        "/data/misc/lsposed",
+        "/data/misc/lspd",
+        "/data/user/0/org.lsposed.manager",
+        "/data/user_de/0/org.lsposed.manager",
+    )
 
     /** CheckEmu HOOK_FRAMEWORK_FILES + SU_PATHS + Magisk — File.exists() 探测。 */
     val HIDDEN_PROBE_PATHS: Set<String> = setOf(
@@ -55,6 +64,9 @@ object StealthConstants {
         "/data/adb/modules/zygisk_lsposed",
         "/data/adb/modules/riru_lsposed",
         "/data/misc/riru",
+        "/system/framework/XposedBridge.jar",
+        "/system/bin/app_process32_xposed",
+        "/system/bin/app_process64_xposed",
     )
 
     const val SETTINGS_ADB_ENABLED = "adb_enabled"

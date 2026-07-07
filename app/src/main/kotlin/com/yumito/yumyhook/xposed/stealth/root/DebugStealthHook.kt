@@ -33,6 +33,19 @@ object DebugStealthHook {
         } catch (e: Throwable) {
             XposedBridge.log("${XposedConstants.TAG}: DebugStealth isDebuggerConnected skip: ${e.message}")
         }
+        try {
+            XposedHelpers.findAndHookMethod(
+                Debug::class.java,
+                "waitingForDebugger",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        param.result = false
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            XposedBridge.log("${XposedConstants.TAG}: DebugStealth waitingForDebugger skip: ${e.message}")
+        }
     }
 
     private fun hookGetApplicationInfo(className: String) {

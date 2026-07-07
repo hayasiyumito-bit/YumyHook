@@ -27,6 +27,26 @@ object XposedFingerprintStealthHook {
 
     fun install() {
         hookStackTraces()
+        hookAllStackTraces()
+    }
+
+    private fun hookAllStackTraces() {
+        try {
+            XposedHelpers.findAndHookMethod(
+                Thread::class.java,
+                "getAllStackTraces",
+                object : XC_MethodHook() {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val traces = param.result as? Map<Thread, Array<StackTraceElement>> ?: return
+                        val sanitized = traces.mapValues { (_, frames) -> sanitizeStackTrace(frames) }
+                        param.result = sanitized
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            XposedBridge.log("${XposedConstants.TAG}: XposedFingerprint all stacks skip: ${e.message}")
+        }
     }
 
     private fun hookStackTraces() {

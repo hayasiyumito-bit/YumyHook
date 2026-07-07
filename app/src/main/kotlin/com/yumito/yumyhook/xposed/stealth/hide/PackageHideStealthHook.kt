@@ -18,6 +18,33 @@ object PackageHideStealthHook {
         installListHook(lpparam, pmClass, "getInstalledPackages", Integer.TYPE)
         installPackageInfoHook(lpparam, pmClass, "getPackageInfo", String::class.java, Integer.TYPE)
         installApplicationInfoHook(lpparam, pmClass, "getApplicationInfo", String::class.java, Integer.TYPE)
+        installResolveHook(lpparam, pmClass)
+    }
+
+    private fun installResolveHook(lpparam: XC_LoadPackage.LoadPackageParam, className: String) {
+        try {
+            val intentClass = android.content.Intent::class.java
+            XposedHelpers.findAndHookMethod(
+                className,
+                lpparam.classLoader,
+                "queryIntentActivities",
+                intentClass,
+                Integer.TYPE,
+                object : XC_MethodHook() {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val list = param.result as? List<*> ?: return
+                        param.result = list.filterNot { item ->
+                            val pkg = XposedHelpers.getObjectField(item, "activityInfo")
+                                ?.let { XposedHelpers.getObjectField(it, "packageName") as? String }
+                            pkg in StealthConstants.HIDDEN_PACKAGES
+                        }
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            XposedBridge.log("${XposedConstants.TAG}: PackageHide.queryIntentActivities skip: ${e.message}")
+        }
     }
 
     private fun installListHook(lpparam: XC_LoadPackage.LoadPackageParam, className: String, method: String, flagsType: Any) {

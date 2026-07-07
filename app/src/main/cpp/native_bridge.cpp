@@ -9,6 +9,7 @@
 #include <string>
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cctype>
 #include <cstdarg>
 #include <cstdio>
@@ -521,13 +522,22 @@ static std::string filter_proc_status_content(const std::string &raw) {
     return out.str();
 }
 
-enum class ProcPathKind { NONE, MAPS, STATUS };
+enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MEM };
 
 static ProcPathKind classify_proc_path(const char *path) {
     if (path == nullptr || strstr(path, "/proc/") == nullptr) {
         return ProcPathKind::NONE;
     }
+    if (strstr(path, "/map_files") != nullptr) {
+        return ProcPathKind::MAPS;
+    }
     const size_t len = strlen(path);
+    if (len >= 4 && strcmp(path + len - 4, "/mem") == 0) {
+        return ProcPathKind::MEM;
+    }
+    if (len >= 10 && strcmp(path + len - 10, "/mountinfo") == 0) {
+        return ProcPathKind::MOUNTINFO;
+    }
     if (len >= 5 && strcmp(path + len - 5, "/maps") == 0) {
         return ProcPathKind::MAPS;
     }
@@ -554,7 +564,12 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
     if (g_proc_cache_dir.empty()) {
         return {};
     }
-    const char *source = kind == ProcPathKind::STATUS ? "/proc/self/status" : "/proc/self/maps";
+    const char *source = "/proc/self/maps";
+    if (kind == ProcPathKind::STATUS) {
+        source = "/proc/self/status";
+    } else if (kind == ProcPathKind::MOUNTINFO) {
+        source = "/proc/self/mountinfo";
+    }
     const std::string raw = read_file_to_string(source);
     if (raw.empty()) {
         return {};
@@ -562,7 +577,12 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
     const std::string filtered = kind == ProcPathKind::STATUS
         ? filter_proc_status_content(raw)
         : filter_proc_maps_content(raw);
-    const char *tag = kind == ProcPathKind::STATUS ? "status" : "maps";
+    const char *tag = "maps";
+    if (kind == ProcPathKind::STATUS) {
+        tag = "status";
+    } else if (kind == ProcPathKind::MOUNTINFO) {
+        tag = "mountinfo";
+    }
     static std::atomic<uint32_t> seq{0};
     const uint32_t id = seq.fetch_add(1, std::memory_order_relaxed);
     std::ostringstream path;
@@ -603,6 +623,52 @@ static bool is_sensitive_dlsym_name(const char *symbol) {
         lower.find("lsposed") != std::string::npos;
 }
 
+static bool is_sensitive_env_value(const char *value) {
+    if (value == nullptr) {
+        return false;
+    }
+    const std::string lower = to_lower_ascii(value);
+    static const char *kMarkers[] = {
+        "xposed", "lsposed", "frida", "magisk", "riru", "zygisk", "shadowhook", "yumyhook", nullptr,
+    };
+    for (const char **marker = kMarkers; *marker != nullptr; ++marker) {
+        if (lower.find(*marker) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static char *(*orig_getenv)(const char *) = nullptr;
+static int (*orig_dladdr)(const void *, Dl_info *) = nullptr;
+
+static char *hooked_getenv(const char *name) {
+    char *value = orig_getenv(name);
+    if (name == nullptr || value == nullptr) {
+        return value;
+    }
+    const std::string key = to_lower_ascii(name);
+    if (key == "ld_preload" || key == "ld_library_path" || key == "classpath") {
+        if (is_sensitive_env_value(value)) {
+            return nullptr;
+        }
+    }
+    return value;
+}
+
+static int hooked_dladdr(const void *addr, Dl_info *info) {
+    const int rc = orig_dladdr(addr, info);
+    if (rc == 0 || info == nullptr) {
+        return rc;
+    }
+    if (info->dli_fname != nullptr && is_sensitive_lib_name(info->dli_fname)) {
+        info->dli_fname = "/system/lib64/libc.so";
+        info->dli_sname = nullptr;
+        info->dli_saddr = nullptr;
+    }
+    return rc;
+}
+
 static int (*orig_open)(const char *, int, ...) = nullptr;
 static int (*orig_openat)(int, const char *, int, ...) = nullptr;
 static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
@@ -633,6 +699,10 @@ static int hooked_open(const char *pathname, int flags, ...) {
         va_end(ap);
     }
     const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind == ProcPathKind::MEM) {
+        errno = ENOENT;
+        return -1;
+    }
     if (kind != ProcPathKind::NONE) {
         const std::string redirect = write_filtered_proc_temp(kind);
         if (!redirect.empty()) {
@@ -652,6 +722,10 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
         va_end(ap);
     }
     const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind == ProcPathKind::MEM) {
+        errno = ENOENT;
+        return -1;
+    }
     if (kind != ProcPathKind::NONE) {
         const std::string redirect = write_filtered_proc_temp(kind);
         if (!redirect.empty()) {
@@ -663,6 +737,10 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
 
 static FILE *hooked_fopen(const char *pathname, const char *mode) {
     const ProcPathKind kind = classify_proc_path(pathname);
+    if (kind == ProcPathKind::MEM) {
+        errno = ENOENT;
+        return nullptr;
+    }
     if (kind != ProcPathKind::NONE) {
         const std::string redirect = write_filtered_proc_temp(kind);
         if (!redirect.empty()) {
@@ -745,6 +823,16 @@ static bool install_proc_stealth_hooks() {
     orig = nullptr;
     if (hook_sym("libdl.so", "dl_iterate_phdr", reinterpret_cast<void *>(hooked_dl_iterate_phdr), &orig, "dl_iterate_phdr")) {
         orig_dl_iterate_phdr = reinterpret_cast<int (*)(int (*)(struct dl_phdr_info *, size_t, void *), void *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libc.so", "getenv", reinterpret_cast<void *>(hooked_getenv), &orig, "getenv(stealth)")) {
+        orig_getenv = reinterpret_cast<char *(*)(const char *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_sym("libdl.so", "dladdr", reinterpret_cast<void *>(hooked_dladdr), &orig, "dladdr(stealth)")) {
+        orig_dladdr = reinterpret_cast<int (*)(const void *, Dl_info *)>(orig);
         any = true;
     }
     g_proc_stealth_installed = any;

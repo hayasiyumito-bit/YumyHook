@@ -13,6 +13,10 @@ object ShellProbeFilter {
         Regex("""\bgrep\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
         Regex("""\bgrep\s+.*\b(xposed|lsposed|frida|magisk|shadowhook|substrate|riru|zygisk)\b""", RegexOption.IGNORE_CASE),
         Regex("""\bstrings\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bls\s+.*\b/proc\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bfind\s+.*\b/data/(adb|misc)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bstat\s+.*\b/proc/\S+""", RegexOption.IGNORE_CASE),
+        Regex("""\bgetprop\s+.*\b(secure|debug|xposed)\b""", RegexOption.IGNORE_CASE),
     )
 
     fun shouldSanitize(command: String?): Boolean {

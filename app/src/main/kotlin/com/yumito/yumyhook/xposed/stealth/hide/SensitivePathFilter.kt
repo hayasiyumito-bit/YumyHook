@@ -7,7 +7,9 @@ object SensitivePathFilter {
 
     fun isHidden(path: String?): Boolean {
         if (path.isNullOrBlank()) return false
-        return normalize(path) in StealthConstants.HIDDEN_PROBE_PATHS
+        val normalized = normalize(path)
+        if (normalized in StealthConstants.HIDDEN_PROBE_PATHS) return true
+        return StealthConstants.HIDDEN_PROBE_PREFIXES.any { prefix -> normalized.startsWith(prefix) }
     }
 
     fun normalize(path: String): String {

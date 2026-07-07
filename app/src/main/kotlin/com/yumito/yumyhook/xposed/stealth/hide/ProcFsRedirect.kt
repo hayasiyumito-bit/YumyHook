@@ -10,6 +10,7 @@ import java.io.File
 object ProcFsRedirect {
 
     fun redirectPath(originalPath: String): String? {
+        if (ProcFsPaths.isDenied(originalPath)) return null
         return when (ProcFsPaths.kind(originalPath)) {
             ProcFsPaths.Kind.MAPS, ProcFsPaths.Kind.SMAPS -> createFilteredFile(
                 StealthConstants.PROC_SELF_MAPS,
@@ -21,7 +22,12 @@ object ProcFsRedirect {
                 prefix = "status_filtered_",
             ) { raw -> ProcStatusFilter.filter(raw) }
 
-            null -> null
+            ProcFsPaths.Kind.MOUNTINFO -> createFilteredFile(
+                StealthConstants.PROC_SELF_MOUNTINFO,
+                prefix = "mountinfo_filtered_",
+            ) { raw -> ProcMapsFilter.filter(raw) }
+
+            ProcFsPaths.Kind.MEM, null -> null
         }
     }
 

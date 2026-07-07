@@ -17,8 +17,10 @@ object SensitivePathStealthHook {
     fun install() {
         hookFileStatMethods()
         hookConstructor("java.io.FileInputStream", String::class.java)
+        hookConstructor("java.io.FileInputStream", File::class.java)
         hookConstructor("java.io.FileOutputStream", String::class.java)
         hookConstructor("java.io.FileReader", String::class.java)
+        hookConstructor("java.io.FileReader", File::class.java)
     }
 
     private fun hookFileStatMethods() {
@@ -31,7 +33,7 @@ object SensitivePathStealthHook {
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             val path = pathOf(param.thisObject as File)
-                            if (SensitivePathFilter.isHidden(path)) {
+                            if (SensitivePathFilter.isHidden(path) || ProcFsPaths.isDenied(path)) {
                                 param.result = false
                             }
                         }
@@ -51,9 +53,14 @@ object SensitivePathStealthHook {
                 pathArg,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val path = param.args[0] as? String ?: return
-                        if (!SensitivePathFilter.isHidden(path)) return
-                        param.throwable = FileNotFoundException(path)
+                        val path = when (val arg = param.args[0]) {
+                            is String -> arg
+                            is File -> arg.absolutePath
+                            else -> return
+                        }
+                        if (ProcFsPaths.isDenied(path) || SensitivePathFilter.isHidden(path)) {
+                            param.throwable = FileNotFoundException(path)
+                        }
                     }
                 },
             )
