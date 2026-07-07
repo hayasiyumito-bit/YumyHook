@@ -30,11 +30,6 @@ object NativeBridge {
 
     fun isHooksInstalled(): Boolean = hooksInstalled
 
-    /** 在模块 ClassLoader 上下文 System.load，避免 boot CL 命名空间 JNI_OnLoad 失败。 */
-    internal fun loadNativeLibrary(absolutePath: String) {
-        System.load(absolutePath)
-    }
-
     /** 宿主 crash/shadowhook 库加载后装 Native（仅 libyumyhook_native + 宿主 shadowhook）。 */
     fun installAfterHostLibrary(dataDir: String, packageName: String, classLoader: ClassLoader): Boolean {
         if (hooksInstalled) return true

@@ -43,7 +43,7 @@ isRooted = hasPositiveRootIndicator(indicators) || frameworkConfirmed
 - `sharedIndicators.nativeProbe.anyHit` 空；`javaNativeMismatches` 空
 - `anyRisk` → false
 
-logcat：`adb logcat -s YH-NATIVE-STEALTH`，确认 `fgets=1 __syscall=1`。
+logcat：`adb logcat -s YH-NATIVE-STEALTH`，确认 `fgets=1` 且 log 含 `native loaded host-ns`（非 isolated module ns）。**禁止** hook 全局 `syscall`/`__syscall`（Android 14+ 会 ANR）。
 
 ## 2. 四通道
 

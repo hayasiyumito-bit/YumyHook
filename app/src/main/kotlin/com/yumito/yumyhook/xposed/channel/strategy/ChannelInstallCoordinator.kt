@@ -59,10 +59,8 @@ object ChannelInstallCoordinator {
             ensureNativeEarly(lpparam, resolved)
         }
         if (resolved.strategy.stealthInstallPhase == InstallPhase.LOAD_PACKAGE) {
-            finalizeNativeStealth(lpparam, resolved)
+            finalizeNativeStealth(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
             installStealth(lpparam, pkg, InstallPhase.LOAD_PACKAGE)
-        } else {
-            finalizeNativeStealth(lpparam, resolved)
         }
         ApplicationLifecycleScheduler.schedule(lpparam, resolved)
     }
@@ -84,7 +82,7 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
             ensureNative(lpparam, app, resolved)
         }
-        finalizeNativeStealth(lpparam, resolved)
+        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
     }
 
     fun onDeferredWithoutApplication(
@@ -102,7 +100,7 @@ object ChannelInstallCoordinator {
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
             installStealth(lpparam, lpparam.packageName, InstallPhase.APPLICATION_ON_CREATE)
         }
-        finalizeNativeStealth(lpparam, resolved)
+        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
     }
 
     fun onApplicationCreate(
@@ -128,18 +126,20 @@ object ChannelInstallCoordinator {
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
             ensureNativeDeferred(pkg, resolved)
         }
-        finalizeNativeStealth(lpparam, resolved)
+        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
     }
 
     fun ensureStealthInstalled(lpparam: XC_LoadPackage.LoadPackageParam, phase: InstallPhase) {
         installStealth(lpparam, lpparam.packageName, phase)
-        finalizeNativeStealth(lpparam, StrategyResolver.resolve(lpparam.packageName, HookFeatureConfig.current()))
+        finalizeNativeStealth(lpparam, StrategyResolver.resolve(lpparam.packageName, HookFeatureConfig.current()), phase)
     }
 
     private fun finalizeNativeStealth(
         lpparam: XC_LoadPackage.LoadPackageParam,
         resolved: ResolvedChannelStrategy,
+        phase: InstallPhase,
     ) {
+        if (!shouldInstallNativeStealthAt(resolved, phase)) return
         if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED &&
             !NativeBridge.isHooksInstalled()
         ) {
@@ -147,6 +147,11 @@ object ChannelInstallCoordinator {
         }
         NativeStealthBridge.install(lpparam)
     }
+
+    private fun shouldInstallNativeStealthAt(
+        resolved: ResolvedChannelStrategy,
+        phase: InstallPhase,
+    ): Boolean = phase.ordinal >= resolved.strategy.stealthInstallPhase.ordinal
 
     private fun shouldInstallCompatAt(resolved: ResolvedChannelStrategy, phase: InstallPhase): Boolean {
         if (!resolved.strategy.registerReceiverCompat) return false

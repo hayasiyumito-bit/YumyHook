@@ -61,6 +61,34 @@ object ShellProbeStealthHook {
         }
     }
 
+    private fun sanitizedProcess(command: String, argv: List<String>): Process? {
+        val joined = if (argv.isNotEmpty()) argv.joinToString(" ") else command
+        return when {
+            ShellOutputFilter.isDfCommand(joined) -> {
+                val raw = HookReentryGuard.runShellProbeBypass {
+                    Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", joined))
+                        .inputStream.bufferedReader().readText()
+                }
+                ShellOutputFilter.processWithStdout(ShellOutputFilter.filterDfOutput(raw))
+            }
+            ShellOutputFilter.isPsCommand(joined) -> {
+                val raw = HookReentryGuard.runShellProbeBypass {
+                    Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", joined))
+                        .inputStream.bufferedReader().readText()
+                }
+                ShellOutputFilter.processWithStdout(ShellOutputFilter.filterPsOutput(raw))
+            }
+            ShellOutputFilter.isGetpropCommand(joined) -> {
+                val raw = HookReentryGuard.runShellProbeBypass {
+                    Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", joined))
+                        .inputStream.bufferedReader().readText()
+                }
+                ShellOutputFilter.processWithStdout(ShellOutputFilter.filterGetpropOutput(raw))
+            }
+            else -> null
+        }
+    }
+
     private fun shouldIntercept(command: String?): Boolean {
         if (command.isNullOrBlank()) return false
         val sub = ShellProbeFilter.extractShellSubcommand(command)
@@ -77,7 +105,12 @@ object ShellProbeStealthHook {
             if (!HookReentryGuard.enter()) return
             try {
                 val argv = argvText(param.args) ?: return
-                if (!shouldInterceptArgv(argv) && !shouldIntercept(argv.joinToString(" "))) return
+                val joined = argv.joinToString(" ")
+                sanitizedProcess(joined, argv)?.let {
+                    param.result = it
+                    return
+                }
+                if (!shouldInterceptArgv(argv) && !shouldIntercept(joined)) return
                 param.result = emptyStdoutProcess()
             } finally {
                 HookReentryGuard.exit()
@@ -92,6 +125,11 @@ object ShellProbeStealthHook {
             try {
                 val builder = param.thisObject as ProcessBuilder
                 val parts = builder.command()
+                val joined = parts.joinToString(" ")
+                sanitizedProcess(joined, parts)?.let {
+                    param.result = it
+                    return
+                }
                 if (!shouldInterceptArgv(parts)) return
                 builder.command("/system/bin/sh", "-c", ":")
             } finally {

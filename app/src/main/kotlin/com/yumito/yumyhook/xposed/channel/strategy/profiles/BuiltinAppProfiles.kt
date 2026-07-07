@@ -53,7 +53,8 @@ object BuiltinAppProfiles {
         XposedConstants.TARGET_PACKAGE_DEVICE to DEFAULT.copy(
             profileId = "deviceinfo",
             applyBuildAtPhase = InstallPhase.LOAD_PACKAGE,
-            stealthInstallPhase = InstallPhase.LOAD_PACKAGE,
+            stealthInstallPhase = InstallPhase.APPLICATION_ATTACH,
+            hookApplicationAttach = true,
             nativeInstallMode = NativeInstallMode.LOAD_PACKAGE,
         ),
     )

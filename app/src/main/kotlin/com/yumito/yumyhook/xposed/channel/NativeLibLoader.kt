@@ -5,10 +5,11 @@ import android.os.Build
 import com.yumito.yumyhook.xposed.channel.strategy.profiles.ShadowhookKnownApps
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XposedBridge
+import de.robv.android.xposed.XposedHelpers
 import java.io.File
 import java.util.zip.ZipFile
 
-/** 从模块 APK 解压 .so 到宿主 cache，用模块 ClassLoader 加载。 */
+/** 从模块 APK 解压 .so 到宿主 cache，经宿主 ClassLoader 命名空间加载（与 libdevice.so 等同域）。 */
 object NativeLibLoader {
 
     private const val EXTRACT_DIR = "cache/yumyhook_native"
@@ -54,9 +55,11 @@ object NativeLibLoader {
                 "${XposedConstants.TAG}: native load via host shadowhook, libs=${libs.joinToString()}",
             )
         }
-        val loader = classLoader ?: NativeBridge::class.java.classLoader
+        val loader = classLoader
             ?: return false.also {
-                XposedBridge.log("${XposedConstants.TAG}: native load skip: no class loader")
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: native load skip: host ClassLoader required (avoid module ns)",
+                )
             }
         synchronized(this) {
             if (loaded) return true
@@ -105,13 +108,28 @@ object NativeLibLoader {
             }
         }
         for (libName in libs) {
-            NativeBridge.loadNativeLibrary(File(destDir, libName).absolutePath)
+            loadNativeInHostNamespace(classLoader, File(destDir, libName).absolutePath)
         }
         loaded = true
         XposedBridge.log(
-            "${XposedConstants.TAG}: native loaded abi=$abi libs=${libs.joinToString()} dir=${destDir.absolutePath}",
+            "${XposedConstants.TAG}: native loaded host-ns abi=$abi libs=${libs.joinToString()} " +
+                "dir=${destDir.absolutePath}",
         )
         return true
+    }
+
+    /** Runtime.load0(hostCl, path) — shadowhook 须与目标 App .so 处于同一 linker namespace。 */
+    private fun loadNativeInHostNamespace(hostClassLoader: ClassLoader, absolutePath: String) {
+        val runtime = Runtime.getRuntime()
+        try {
+            XposedHelpers.callMethod(runtime, "load0", hostClassLoader, absolutePath)
+        } catch (e: Throwable) {
+            XposedBridge.log(
+                "${XposedConstants.TAG}: Runtime.load0 failed (${e.message}), fallback System.load",
+            )
+            @Suppress("DEPRECATION")
+            System.load(absolutePath)
+        }
     }
 
     private fun preferredAbi(): String {

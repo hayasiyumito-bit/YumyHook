@@ -17,7 +17,6 @@
 #include <link.h>
 #include <sstream>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 #define LOG_TAG "YH-NATIVE-PROP"
@@ -339,9 +338,6 @@ static bool install_property_hook() {
     if (g_hook_installed) {
         install_read_callback_hook();
         install_dlsym_shim();
-        if (!g_proc_cache_dir.empty()) {
-            install_proc_stealth_hooks();
-        }
         return true;
     }
     if (host_hook_engine_ready()) {
@@ -438,9 +434,6 @@ static bool retry_deferred_hooks() {
     }
     if (install_dlsym_shim()) {
         any = true;
-    }
-    if (!g_proc_cache_dir.empty()) {
-        install_proc_stealth_hooks();
     }
     return any;
 }
@@ -686,7 +679,7 @@ static std::string filter_proc_status_content(const std::string &raw) {
     return out.str();
 }
 
-enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM };
+enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM, NET_UNIX };
 
 static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
 static int (*orig_open)(const char *, int, ...) = nullptr;
@@ -722,6 +715,9 @@ static ProcPathKind classify_proc_path(const char *path) {
     }
     if (len >= 7 && strcmp(path + len - 7, "/status") == 0) {
         return ProcPathKind::STATUS;
+    }
+    if (strstr(path, "/proc/net/unix") != nullptr) {
+        return ProcPathKind::NET_UNIX;
     }
     return ProcPathKind::NONE;
 }
@@ -760,6 +756,8 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
         source = "/proc/self/mountinfo";
     } else if (kind == ProcPathKind::MOUNTS) {
         source = "/proc/self/mounts";
+    } else if (kind == ProcPathKind::NET_UNIX) {
+        source = "/proc/net/unix";
     }
     const std::string raw = read_file_to_string(source);
     if (raw.empty()) {
@@ -775,6 +773,8 @@ static std::string write_filtered_proc_temp(ProcPathKind kind) {
         tag = "mountinfo";
     } else if (kind == ProcPathKind::MOUNTS) {
         tag = "mounts";
+    } else if (kind == ProcPathKind::NET_UNIX) {
+        tag = "unix";
     }
     static std::atomic<uint32_t> seq{0};
     const uint32_t id = seq.fetch_add(1, std::memory_order_relaxed);
@@ -923,119 +923,6 @@ static int openat_proc_redirect(int dirfd, const char *pathname, int flags, mode
     return call_orig_openat(dirfd, redirect.c_str(), flags, mode, has_mode);
 }
 
-static long (*orig___syscall)(long, long, long, long, long, long, long) = nullptr;
-static long (*orig_syscall)(long, ...) = nullptr;
-
-static long invoke_orig_syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
-    if (orig___syscall != nullptr) {
-        return orig___syscall(number, a0, a1, a2, a3, a4, a5);
-    }
-    errno = ENOSYS;
-    return -1;
-}
-
-static long dispatch_stealth_syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
-    if (proc_io_bypass()) {
-        return invoke_orig_syscall(number, a0, a1, a2, a3, a4, a5);
-    }
-#if defined(__NR_faccessat)
-    if (number == __NR_faccessat) {
-        const auto *path = reinterpret_cast<const char *>(a1);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-    }
-#endif
-#if defined(__NR_faccessat2)
-    if (number == __NR_faccessat2) {
-        const auto *path = reinterpret_cast<const char *>(a1);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-    }
-#endif
-#if defined(__NR_newfstatat)
-    if (number == __NR_newfstatat) {
-        const auto *path = reinterpret_cast<const char *>(a1);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-    }
-#endif
-#if defined(__NR_readlinkat)
-    if (number == __NR_readlinkat) {
-        const auto *path = reinterpret_cast<const char *>(a1);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-    }
-#endif
-#if defined(__NR_access)
-    if (number == __NR_access) {
-        const auto *path = reinterpret_cast<const char *>(a0);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-    }
-#endif
-#if defined(__NR_openat)
-    if (number == __NR_openat
-#if defined(__NR_openat2)
-        || number == __NR_openat2
-#endif
-    ) {
-        const auto *path = reinterpret_cast<const char *>(a1);
-        if (is_root_sensitive_path(path)) {
-            errno = ENOENT;
-            return -1;
-        }
-        const ProcPathKind kind = classify_proc_path(path);
-        if (kind == ProcPathKind::MEM) {
-            errno = ENOENT;
-            return -1;
-        }
-        if (kind != ProcPathKind::NONE) {
-            const std::string redirect = write_filtered_proc_temp(kind);
-            if (redirect.empty()) {
-                errno = ENOENT;
-                return -1;
-            }
-            return invoke_orig_syscall(
-                __NR_openat,
-                a0,
-                reinterpret_cast<long>(redirect.c_str()),
-                a2,
-                a3,
-                a4,
-                a5);
-        }
-    }
-#endif
-    return invoke_orig_syscall(number, a0, a1, a2, a3, a4, a5);
-}
-
-static long hooked___syscall(long number, long a0, long a1, long a2, long a3, long a4, long a5) {
-    return dispatch_stealth_syscall(number, a0, a1, a2, a3, a4, a5);
-}
-
-static long hooked_syscall(long number, ...) {
-    va_list ap;
-    va_start(ap, number);
-    const long a0 = va_arg(ap, long);
-    const long a1 = va_arg(ap, long);
-    const long a2 = va_arg(ap, long);
-    const long a3 = va_arg(ap, long);
-    const long a4 = va_arg(ap, long);
-    const long a5 = va_arg(ap, long);
-    va_end(ap);
-    return dispatch_stealth_syscall(number, a0, a1, a2, a3, a4, a5);
-}
-
 static int hooked_access(const char *pathname, int mode) {
     if (proc_io_bypass() && orig_access != nullptr) {
         return orig_access(pathname, mode);
@@ -1043,7 +930,11 @@ static int hooked_access(const char *pathname, int mode) {
     if (is_root_sensitive_path(pathname)) {
         return deny_root_path_errno();
     }
-    return orig_access(pathname, mode);
+    if (orig_access != nullptr) {
+        return orig_access(pathname, mode);
+    }
+    errno = ENOSYS;
+    return -1;
 }
 
 static int hooked_faccessat(int dirfd, const char *pathname, int mode, int flags) {
@@ -1315,7 +1206,7 @@ static bool ensure_hook_engine_for_stealth() {
 
 static bool proc_stealth_critical_ready() {
     const bool path_block = orig_access != nullptr || orig_faccessat != nullptr ||
-        orig___faccessat != nullptr || orig___syscall != nullptr || orig_syscall != nullptr;
+        orig___faccessat != nullptr;
     const bool proc_read = (orig_fopen != nullptr || orig_open != nullptr) &&
         (orig_fgets != nullptr || orig_read != nullptr);
     return path_block && proc_read;
@@ -1417,27 +1308,15 @@ static bool install_proc_stealth_hooks() {
         orig___openat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
     }
-    orig = nullptr;
-    if (hook_sym("libc.so", "__syscall", reinterpret_cast<void *>(hooked___syscall), &orig, "__syscall(stealth)")) {
-        orig___syscall = reinterpret_cast<long (*)(long, long, long, long, long, long, long)>(orig);
-        any = true;
-    }
-    orig = nullptr;
-    if (hook_sym("libc.so", "syscall", reinterpret_cast<void *>(hooked_syscall), &orig, "syscall(stealth)")) {
-        orig_syscall = reinterpret_cast<long (*)(long, ...)>(orig);
-        any = true;
-    }
     const bool critical = proc_stealth_critical_ready();
     g_proc_stealth_installed = critical;
     SLOGI(
-        "proc stealth critical=%d access=%d faccessat=%d fopen=%d fgets=%d __syscall=%d syscall=%d",
+        "proc stealth critical=%d access=%d faccessat=%d fopen=%d fgets=%d",
         critical ? 1 : 0,
         orig_access != nullptr ? 1 : 0,
         orig_faccessat != nullptr ? 1 : 0,
         orig_fopen != nullptr ? 1 : 0,
-        orig_fgets != nullptr ? 1 : 0,
-        orig___syscall != nullptr ? 1 : 0,
-        orig_syscall != nullptr ? 1 : 0);
+        orig_fgets != nullptr ? 1 : 0);
     return critical;
 }
 
