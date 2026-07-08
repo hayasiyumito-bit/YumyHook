@@ -1,9 +1,8 @@
 package com.yumito.yumyhook.xposed.stealth.hide
 
-import com.yumito.yumyhook.xposed.channel.HostShadowhookDetector
 import com.yumito.yumyhook.xposed.channel.NativeJniHost
 import com.yumito.yumyhook.xposed.channel.NativeLibLoader
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.runtime.ModulePathHolder
 import de.robv.android.xposed.XposedBridge
@@ -27,7 +26,7 @@ object NativeStealthBridge {
     }
 
     fun install(packageName: String, dataDir: String?, classLoader: ClassLoader?): Boolean {
-        if (!HookFeatureConfig.current().let { it.hideLsposed || it.hideRoot }) return false
+        if (!HookConfig.features().let { it.hideLsposed || it.hideRoot }) return false
         if (procHooksInstalled) return true
         synchronized(this) {
             if (procHooksInstalled) return true
@@ -80,12 +79,12 @@ object NativeStealthBridge {
             dataDir,
             packageName,
             classLoader,
-            reuseHostShadowhook = HostShadowhookDetector.isHostPresent(),
+            reuseHostShadowhook = NativeLibLoader.isHostPresent(),
         )
         if (!libLoaded) {
             XposedBridge.log(
                 "${XposedConstants.TAG}: native stealth lib defer pkg=$packageName " +
-                    "host=${HostShadowhookDetector.isHostPresent()}",
+                    "host=${NativeLibLoader.isHostPresent()}",
             )
         }
         return libLoaded

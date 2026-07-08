@@ -6,16 +6,14 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import com.yumito.yumyhook.xposed.channel.strategy.BuildApplyPhaseGate
 import com.yumito.yumyhook.xposed.channel.strategy.InstallPhase
+import com.yumito.yumyhook.xposed.channel.strategy.profiles.BuiltinAppProfiles
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
 /**
- * Build 伪装：
- * - attach 绑 Context
- * - handleBindApplication 结束 + onCreate 时 apply（framework 类须 null ClassLoader）
+ * Build 伪装桩安装。
  */
 object OsBuildHook {
 
@@ -37,7 +35,7 @@ object OsBuildHook {
   }
 
   private fun applyIfAllowed(packageName: String, phase: InstallPhase, reason: String) {
-    if (!BuildApplyPhaseGate.allows(packageName, phase)) return
+    if (phase.ordinal < BuiltinAppProfiles.forPackage(packageName).applyBuildAtPhase.ordinal) return
     SpoofRuntime.refreshAndApply(TargetContextHolder.appContext, reason)
   }
 

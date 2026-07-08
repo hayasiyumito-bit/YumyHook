@@ -3,10 +3,9 @@ package com.yumito.yumyhook.xposed.runtime
 import com.yumito.yumyhook.xposed.channel.NativeBridge
 import com.yumito.yumyhook.xposed.channel.build.OsBuildPatcher
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
-import com.yumito.yumyhook.xposed.channel.strategy.BuildApplyPhaseGate
 import com.yumito.yumyhook.xposed.channel.strategy.InstallPhase
+import com.yumito.yumyhook.xposed.channel.strategy.profiles.BuiltinAppProfiles
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
@@ -31,7 +30,8 @@ object SpoofRuntime {
     fun applyChannelsAtPhase(reason: String, phase: InstallPhase, fourChannelActive: Boolean) {
         if (!HookConfig.isEnabledForHook()) return
         if (!fourChannelActive) return
-        if (!BuildApplyPhaseGate.allows(TargetContextHolder.packageName, phase)) return
+        val pkg = TargetContextHolder.packageName.orEmpty()
+        if (phase.ordinal < BuiltinAppProfiles.forPackage(pkg).applyBuildAtPhase.ordinal) return
         val values = HookConfig.valuesForHook()
         if (values.buildFields.isEmpty()) return
 
@@ -52,7 +52,7 @@ object SpoofRuntime {
 
     /** 配置刷新后重打 Build / Native，无需杀目标进程。 */
     fun reapplyIfRevisionChanged(values: HookSpoofValues, reason: String, context: Context? = null) {
-        val features = HookFeatureConfig.refreshIfStale()
+        val features = HookConfig.refreshIfStale().let { HookConfig.features() }
         NativeBridge.syncFromGate(values, context?.packageName ?: TargetContextHolder.packageName)
         if (!HookConfig.isEnabledForHook()) return
         if (!FourChannelGate.isActive()) return

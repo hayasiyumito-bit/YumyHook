@@ -4,9 +4,8 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
-import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.config.HookConfig
+import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
@@ -65,7 +64,7 @@ object SystemPropertiesHook {
                             val spoofed = SystemPropertyMapper.resolveChannelValue(
                                 key,
                                 values,
-                                HookFeatureConfig.current().hideRoot,
+                                HookConfig.features().hideRoot,
                             ) ?: return
                             param.result = when (name) {
                                 "getInt" -> spoofed.toIntOrNull() ?: param.args[1]

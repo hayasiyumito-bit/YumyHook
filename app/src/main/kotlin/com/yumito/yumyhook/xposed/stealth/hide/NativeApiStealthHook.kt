@@ -19,6 +19,8 @@ object NativeApiStealthHook {
             hookOsMethod("faccessat", Integer.TYPE, String::class.java, Integer.TYPE, Integer.TYPE)
             hookOsMethod("stat", String::class.java)
             hookOsMethod("lstat", String::class.java)
+            hookOsMethod("readlink", String::class.java)
+            hookOsMethod("readlinkat", Integer.TYPE, String::class.java)
             installed = true
         }
     }
@@ -33,7 +35,7 @@ object NativeApiStealthHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val path = pathArgForOsMethod(name, param.args) ?: return
-                        if (!SensitivePathFilter.isHidden(path)) return
+                        if (!SensitivePathStealthHook.isHidden(path)) return
                         param.throwable = android.system.ErrnoException(
                             name,
                             android.system.OsConstants.ENOENT,

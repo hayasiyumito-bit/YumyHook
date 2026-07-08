@@ -1,128 +1,162 @@
 package com.yumito.yumyhook.xposed.config
 
+import android.content.Context
+import android.util.Log
+import com.yumito.yumyhook.model.HookFeatures
 import com.yumito.yumyhook.xposed.channel.NativeBridge
+import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
-
-import android.content.Context
 import de.robv.android.xposed.XSharedPreferences
 import org.json.JSONObject
+import java.io.File
 
-/**
- * Hook 侧配置：安全点 [refreshHookCache] 刷新内存缓存；
- * SystemProperties / getprop Hook 内只读 [valuesForHook]，禁止 Context / createPackageContext。
- */
+/** Hook 侧配置与功能开关管理；统一读取 spoof_config.json 与 XSharedPreferences。 */
 object HookConfig {
 
-    private const val PREF_PROFILE = "spoof_profile_label"
-    private const val PREF_BUILD_JSON = "spoof_build_json"
-    private const val PREF_IDS_JSON = "spoof_ids_json"
-    private const val PREF_LOCATION_JSON = "spoof_location_json"
-
-    @Volatile
-    private var cachedEnabled: Boolean = false
-
-    @Volatile
-    private var cachedValues: HookSpoofValues = HookSpoofValues.DEFAULT
-
-    @Volatile
-    private var cachedConfigMtime: Long = 0L
-
-    @Volatile
-    private var cachedPrefsUpdatedAt: Long = 0L
-
-    /** 配置变更时轻量刷新（mtime + spoof_updated_at 双信号）。 */
-    fun refreshHookCacheIfStale(): HookSpoofValues {
-        val prefs = peekFreshPrefs()
-        val prefsUpdatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
-        val file = SpoofConfigFile.hookSideFile()
-        val fileMtime = if (file.exists()) file.lastModified() else 0L
-        if (prefsUpdatedAt != cachedPrefsUpdatedAt || fileMtime != cachedConfigMtime) {
-            return refreshHookCache()
-        }
-        return cachedValues
-    }
-
-    /** 进程启动 / 检测到配置变更时调用。 */
-    fun refreshHookCache(): HookSpoofValues {
-        val prefs = readFreshPrefs()
-        val prefsUpdatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
-        val fromFile = SpoofConfigFile.readHookSide()
-        val fromPrefs = loadFromPrefs(prefs)
-        val values = sanitize(
-            when {
-                fromFile != null && fromFile.updatedAt >= fromPrefs.updatedAt -> fromFile
-                fromPrefs.buildFields.isNotEmpty() -> fromPrefs
-                fromFile != null -> fromFile
-                else -> HookSpoofValues.DEFAULT
-            },
-        )
-        cachedValues = values
-        cachedPrefsUpdatedAt = prefsUpdatedAt
-        cachedEnabled = SpoofConfigFile.readHookEnabled()
-            ?: prefs.getBoolean(XposedConstants.PREF_KEY_ENABLED, false)
-        HookFeatureConfig.refresh()
-        cachedConfigMtime = SpoofConfigFile.hookSideFile().takeIf { it.exists() }?.lastModified() ?: 0L
-        HookFeatureConfig.syncRevision(cachedConfigMtime, cachedPrefsUpdatedAt)
-        NativeBridge.syncFromGate(cachedValues, TargetContextHolder.packageName)
-        SpoofRuntime.reapplyIfRevisionChanged(values, "config-refresh")
-        return cachedValues
-    }
+    private const val FILE_NAME = "spoof_config.json"
+    @Volatile private var cachedValues = HookSpoofValues.DEFAULT
+    @Volatile private var cachedFeatures = HookFeatures.DEFAULT
+    @Volatile private var cachedEnabled = false
+    @Volatile private var cachedMtime = 0L
+    @Volatile private var cachedPrefsUpdatedAt = 0L
 
     fun isEnabledForHook(): Boolean = cachedEnabled
-
     fun valuesForHook(): HookSpoofValues = cachedValues
+    fun features(): HookFeatures = cachedFeatures
 
-    /** 空/损坏 JSON 不得覆盖 Build 字段，否则目标 App 会看到真机值。 */
-    fun sanitize(values: HookSpoofValues): HookSpoofValues {
-        return if (values.buildFields.isEmpty()) HookSpoofValues.DEFAULT else values
+    fun refreshHookCacheIfStale(): HookSpoofValues = refreshIfStale()
+    fun refreshIfStale(): HookSpoofValues {
+        val file = hookFile()
+        val mtime = try { if (file.exists()) file.lastModified() else 0L } catch (_: Throwable) { 0L }
+        val prefsAt = try { 
+            XSharedPreferences(XposedConstants.MODULE_PACKAGE, XposedConstants.PREFS_NAME)
+                .apply { reload() }
+                .getLong(XposedConstants.PREF_UPDATED_AT, 0L) 
+        } catch (_: Throwable) { 0L }
+        
+        if (mtime != cachedMtime || prefsAt != cachedPrefsUpdatedAt) return refresh()
+        return cachedValues
     }
 
-    private fun loadFromPrefs(prefs: android.content.SharedPreferences): HookSpoofValues {
-        val defaults = HookSpoofValues.DEFAULT
-        val profile = prefs.getString(PREF_PROFILE, defaults.profileLabel) ?: defaults.profileLabel
-        val buildJson = prefs.getString(PREF_BUILD_JSON, null)
-        val idsJson = prefs.getString(PREF_IDS_JSON, null)
-        val locationJson = prefs.getString(PREF_LOCATION_JSON, "{}")
-        val updatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
-        return if (!buildJson.isNullOrBlank() && !idsJson.isNullOrBlank()) {
-            sanitize(
-                HookSpoofValues.fromJson(
-                    buildJson,
-                    idsJson,
-                    profile,
-                    updatedAt,
-                    locationJson.orEmpty(),
-                ),
+    fun refreshHookCache(): HookSpoofValues = refresh()
+    fun refresh(packageName: String? = null): HookSpoofValues {
+        val file = hookFile()
+        val json = if (try { file.exists() } catch (_: Throwable) { false }) {
+            runCatching { HookReentryGuard.runFileBypass { JSONObject(file.readText()) } }.getOrNull()
+        } else null
+        
+        val prefs = XSharedPreferences(XposedConstants.MODULE_PACKAGE, XposedConstants.PREFS_NAME).apply { reload() }
+        
+        cachedEnabled = json?.optBoolean("hookEnabled") ?: prefs.getBoolean(XposedConstants.PREF_KEY_ENABLED, false)
+        cachedPrefsUpdatedAt = prefs.getLong(XposedConstants.PREF_UPDATED_AT, 0L)
+        cachedMtime = try { if (file.exists()) file.lastModified() else 0L } catch (_: Throwable) { 0L }
+
+        val fromFile = json?.let { obj ->
+            val build = toMap(obj.optJSONObject("buildFields"))
+            if (build.isEmpty()) null 
+            else HookSpoofValues(
+                obj.optString("profileLabel", "default"),
+                build,
+                toMap(obj.optJSONObject("idsFields")),
+                toMap(obj.optJSONObject("locationFields")),
+                obj.optLong("updatedAt")
             )
-        } else {
-            defaults
+        }
+        
+        val buildJson = prefs.getString("spoof_build_json", null)
+        val fromPrefs = if (buildJson != null) {
+            HookSpoofValues.fromJson(
+                buildJson,
+                prefs.getString("spoof_ids_json", "{}") ?: "{}",
+                prefs.getString("spoof_profile_label", "default") ?: "default",
+                cachedPrefsUpdatedAt,
+                prefs.getString("spoof_location_json", "{}") ?: "{}"
+            )
+        } else null
+
+        cachedValues = when {
+            fromFile != null && fromFile.updatedAt >= (fromPrefs?.updatedAt ?: 0) -> fromFile
+            fromPrefs != null -> fromPrefs
+            fromFile != null -> fromFile
+            else -> HookSpoofValues.DEFAULT
+        }.let { sanitize(it) }
+        
+        cachedFeatures = json?.optJSONObject("features")?.let { HookFeatures.fromJson(it) }
+            ?: prefs.getString(XposedConstants.PREF_FEATURES_JSON, null)?.let { runCatching { HookFeatures.fromJson(JSONObject(it)) }.getOrNull() }
+            ?: HookFeatures.DEFAULT
+        
+        val pkg = packageName ?: TargetContextHolder.packageName
+        if (!pkg.isNullOrBlank()) {
+            NativeBridge.syncFromGate(cachedValues, pkg)
+        }
+        SpoofRuntime.reapplyIfRevisionChanged(cachedValues, "refresh")
+        return cachedValues
+    }
+
+    fun sanitize(v: HookSpoofValues): HookSpoofValues = if (v.buildFields.isEmpty()) HookSpoofValues.DEFAULT else v
+
+    private fun toMap(obj: JSONObject?): Map<String, String> {
+        if (obj == null) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        obj.keys().forEach { k -> 
+            val v = obj.optString(k)
+            if (v.isNotEmpty()) map[k] = v
+        }
+        return map
+    }
+
+    fun hookFile(): File {
+        val mirror = File("/data/local/tmp/yumyhook/$FILE_NAME")
+        if (try { mirror.exists() && mirror.length() > 0 } catch (_: Throwable) { false }) return mirror
+        return File("/data/data/${XposedConstants.MODULE_PACKAGE}/files/$FILE_NAME").let { 
+            if (try { it.exists() } catch (_: Throwable) { false }) it 
+            else File("/data/user/0/${XposedConstants.MODULE_PACKAGE}/files/$FILE_NAME") 
         }
     }
 
-    private fun peekFreshPrefs(): android.content.SharedPreferences {
-        val prefs = XSharedPreferences(XposedConstants.MODULE_PACKAGE, XposedConstants.PREFS_NAME)
-        prefs.reload()
-        return prefs
+    fun mapToJson(map: Map<String, String>): String = JSONObject().apply { map.forEach { (k, v) -> put(k, v) } }.toString()
+
+    fun publish(context: Context, values: HookSpoofValues, enabled: Boolean, features: HookFeatures) {
+        val json = JSONObject().apply {
+            put("profileLabel", values.profileLabel)
+            put("buildFields", JSONObject(values.buildFields))
+            put("idsFields", JSONObject(values.idsFields))
+            put("locationFields", JSONObject(values.locationFields))
+            put("hookEnabled", enabled)
+            put("updatedAt", values.updatedAt)
+            put("features", features.toJson())
+        }
+        val file = File(context.filesDir, FILE_NAME)
+        file.writeText(json.toString())
+        try { file.setReadable(true, false) } catch (_: Throwable) {}
+        try {
+            val mirror = File("/data/local/tmp/yumyhook/$FILE_NAME")
+            mirror.parentFile?.apply { mkdirs(); setReadable(true, false); setExecutable(true, false) }
+            file.copyTo(mirror, true)
+            mirror.setReadable(true, false)
+        } catch (e: Exception) { Log.w("YH-CONFIG", "mirror fail: ${e.message}") }
     }
 
-    private fun readFreshPrefs(): android.content.SharedPreferences {
-        val prefs = XSharedPreferences(XposedConstants.MODULE_PACKAGE, XposedConstants.PREFS_NAME)
-        prefs.makeWorldReadable()
-        prefs.reload()
-        return prefs
+    fun readFromAppContext(context: Context): HookSpoofValues = readModule(context)
+    fun readModule(context: Context): HookSpoofValues {
+        val file = File(context.filesDir, FILE_NAME)
+        if (!file.exists()) return HookSpoofValues.DEFAULT
+        return runCatching { 
+            val obj = JSONObject(file.readText())
+            HookSpoofValues(
+                obj.optString("profileLabel", "default"), 
+                toMap(obj.optJSONObject("buildFields")), 
+                toMap(obj.optJSONObject("idsFields")), 
+                toMap(obj.optJSONObject("locationFields")), 
+                obj.optLong("updatedAt")
+            )
+        }.getOrDefault(HookSpoofValues.DEFAULT)
     }
 
-    /** 模块 App UI 读取（有自身 Context，安全）。 */
-    fun readFromAppContext(context: Context): HookSpoofValues {
-        SpoofConfigFile.readModule(context)?.let { return it }
-        val prefs = context.getSharedPreferences(XposedConstants.PREFS_NAME, Context.MODE_PRIVATE)
-        return loadFromPrefs(prefs)
-    }
-
-    fun mapToJson(map: Map<String, String>): String {
-        val json = JSONObject()
-        map.forEach { (key, value) -> json.put(key, value) }
-        return json.toString()
+    fun readModuleEnabled(context: Context): Boolean {
+        val file = File(context.filesDir, FILE_NAME)
+        if (!file.exists()) return context.getSharedPreferences(XposedConstants.PREFS_NAME, Context.MODE_PRIVATE).getBoolean(XposedConstants.PREF_KEY_ENABLED, false)
+        return runCatching { JSONObject(file.readText()).optBoolean("hookEnabled", false) }.getOrDefault(false)
     }
 }

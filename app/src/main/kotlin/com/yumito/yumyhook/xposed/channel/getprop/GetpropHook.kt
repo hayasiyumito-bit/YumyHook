@@ -2,7 +2,6 @@ package com.yumito.yumyhook.xposed.channel.getprop
 
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
@@ -59,7 +58,7 @@ object GetpropHook {
     }
 
     private fun spoofOutput(key: String?, values: HookSpoofValues): String {
-        val hideRoot = HookFeatureConfig.current().hideRoot
+        val hideRoot = HookConfig.features().hideRoot
         if (key.isNullOrBlank()) {
             return GetpropMerger.merge(runRealGetprop(), values)
         }
@@ -78,14 +77,14 @@ object GetpropHook {
     }
 
     private fun applySpoofedGetprop(key: String?, apply: (Array<String>) -> Unit): Boolean {
-        if (key != null && HookFeatureConfig.current().hideRoot) {
+        if (key != null && HookConfig.features().hideRoot) {
             StealthConstants.ROOT_SPOOF_PROPERTIES[key]?.let { spoofed ->
                 apply(shellCommand(spoofed))
                 return true
             }
         }
         if (key != null && !SystemPropertyMapper.hasMapping(key)) return false
-        val values = HookConfig.refreshHookCacheIfStale()
+        val values = HookConfig.refreshIfStale()
         apply(shellCommand(spoofOutput(key, values)))
         return true
     }

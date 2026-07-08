@@ -1,297 +1,192 @@
 package com.yumito.yumyhook.xposed.channel.strategy
 
 import android.app.Application
-import com.yumito.yumyhook.xposed.channel.NativeLoadGuard
-import com.yumito.yumyhook.xposed.channel.HostShadowhookLoadGuard
 import com.yumito.yumyhook.xposed.channel.NativeBridge
+import com.yumito.yumyhook.xposed.channel.NativeLibLoader
 import com.yumito.yumyhook.xposed.channel.build.OsBuildHook
 import com.yumito.yumyhook.xposed.channel.getprop.GetpropHook
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertiesHook
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.runtime.SpoofRuntime
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
 import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.stealth.install.FeatureStealthInstaller
 import com.yumito.yumyhook.xposed.stealth.install.RegisterReceiverCompatHook
+import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XposedBridge
+import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
-/**
- * 按 [ResolvedChannelStrategy] 分阶段安装四通道与 Stealth。
- * handleLoadPackage 只装桩；是否生效仍由 Gate 运行时判定。
- */
+/** 分阶段安装四通道与 Stealth； handleLoadPackage 只装桩。 */
 object ChannelInstallCoordinator {
 
-    @Volatile
-    private var channelStubsInstalled = false
+    @Volatile private var channelStubsInstalled = false
+    @Volatile private var stealthInstalled = false
+    @Volatile private var nativeReady = false
+    @Volatile private var integrityStarted = false
 
-    @Volatile
-    private var stealthInstalled = false
-
-    @Volatile
-    private var nativeReady = false
+    private fun log(pkg: String, msg: String) = XposedBridge.log("${XposedConstants.TAG}: $pkg $msg")
 
     fun onLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam, resolved: ResolvedChannelStrategy) {
         val pkg = lpparam.packageName
         TargetContextHolder.packageName = pkg
-        if (resolved.strategy.deferInstallUntilBindComplete) {
-            IntegrityDelayedInstaller.schedule(lpparam)
-            return
-        }
-        val dataDir = lpparam.appInfo.dataDir.orEmpty()
-        if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED && dataDir.isNotBlank()) {
-            HostShadowhookLoadGuard.bind(pkg, dataDir, lpparam.classLoader)
-            HostShadowhookLoadGuard.schedulePostBindInstall()
-            ChannelDiagLog.native(pkg, "deferred until host shadowhook lib")
-        }
-        if (shouldInstallCompatAt(resolved, InstallPhase.LOAD_PACKAGE)) {
-            RegisterReceiverCompatHook.installIfNeeded()
-            ChannelDiagLog.phase(pkg, InstallPhase.LOAD_PACKAGE, "registerReceiver compat")
-        }
-        if (resolved.nativeActive && resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
-            NativeLoadGuard.install(lpparam)
-        }
+        if (resolved.strategy.deferInstallUntilBindComplete) { scheduleIntegrity(lpparam); return }
+        
+        if (resolved.nativeActive) NativeBridge.installLoadWatcher(lpparam)
+        if (shouldCompat(resolved, InstallPhase.LOAD_PACKAGE)) RegisterReceiverCompatHook.installIfNeeded()
+        
         ensureChannelStubs(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
-        if (resolved.applyBuildAtPhase(InstallPhase.LOAD_PACKAGE)) {
-            SpoofRuntime.applyChannelsAtPhase("loadPackage", InstallPhase.LOAD_PACKAGE, resolved.fourChannelActive)
+        
+        if (resolved.applyBuild(InstallPhase.LOAD_PACKAGE)) {
+            SpoofRuntime.applyChannelsAtPhase("LP", InstallPhase.LOAD_PACKAGE, true)
         }
+        
         if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
             ensureNativeEarly(lpparam, resolved)
         }
+        
         if (resolved.strategy.stealthInstallPhase == InstallPhase.LOAD_PACKAGE) {
-            finalizeNativeStealth(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
+            finalizeStealth(lpparam, resolved, InstallPhase.LOAD_PACKAGE)
             installStealth(lpparam, pkg, InstallPhase.LOAD_PACKAGE)
         }
-        ApplicationLifecycleScheduler.schedule(lpparam, resolved)
+        scheduleLifecycle(lpparam, resolved)
     }
 
-    fun onApplicationAttach(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        app: Application,
-        resolved: ResolvedChannelStrategy,
-    ) {
+    fun onApplicationAttach(lpparam: XC_LoadPackage.LoadPackageParam, app: Application, resolved: ResolvedChannelStrategy) {
         val pkg = lpparam.packageName
         TargetContextHolder.bind(app)
-        if (!nativeReady && resolved.nativeActive && resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
-            if (!NativeBridge.retryInstallWithCaller(lpparam, app.javaClass)) {
-                retryNativeEarlyIfNeeded(lpparam, resolved)
-            } else {
-                nativeReady = true
-            }
+        
+        if (!nativeReady && resolved.nativeActive) {
+            if (NativeBridge.retryInstallWithCaller(lpparam, app.javaClass)) nativeReady = true
         }
+        
         ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
-        if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ATTACH)) {
-            SpoofRuntime.applyChannelsAtPhase("attach", InstallPhase.APPLICATION_ATTACH, resolved.fourChannelActive)
+        
+        if (resolved.applyBuild(InstallPhase.APPLICATION_ATTACH)) {
+            SpoofRuntime.applyChannelsAtPhase("attach", InstallPhase.APPLICATION_ATTACH, true)
         }
+        
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ATTACH) {
             installStealth(lpparam, pkg, InstallPhase.APPLICATION_ATTACH)
         }
-        if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
-            retryNativeEarlyIfNeeded(lpparam, resolved)
-        }
-        if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
+        
+        if (!nativeReady && resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ATTACH) {
             ensureNative(lpparam, app, resolved)
         }
-        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
+        finalizeStealth(lpparam, resolved, InstallPhase.APPLICATION_ATTACH)
     }
 
-    fun onDeferredWithoutApplication(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        resolved: ResolvedChannelStrategy,
-    ) {
-        ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
-        if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ON_CREATE)) {
-            SpoofRuntime.applyChannelsAtPhase(
-                "integrityDelayed",
-                InstallPhase.APPLICATION_ON_CREATE,
-                resolved.fourChannelActive,
-            )
-        }
-        if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
-            installStealth(lpparam, lpparam.packageName, InstallPhase.APPLICATION_ON_CREATE)
-        }
-        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
-    }
-
-    fun onApplicationCreate(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        app: Application,
-        resolved: ResolvedChannelStrategy,
-    ) {
+    fun onApplicationCreate(lpparam: XC_LoadPackage.LoadPackageParam, app: Application, resolved: ResolvedChannelStrategy) {
         val pkg = lpparam.packageName
         ensureChannelStubs(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
-        if (resolved.applyBuildAtPhase(InstallPhase.APPLICATION_ON_CREATE)) {
-            SpoofRuntime.applyChannelsAtPhase("onCreate", InstallPhase.APPLICATION_ON_CREATE, resolved.fourChannelActive)
+        
+        if (resolved.applyBuild(InstallPhase.APPLICATION_ON_CREATE)) {
+            SpoofRuntime.applyChannelsAtPhase("onCreate", InstallPhase.APPLICATION_ON_CREATE, true)
         }
+        
         if (resolved.strategy.stealthInstallPhase == InstallPhase.APPLICATION_ON_CREATE) {
             installStealth(lpparam, pkg, InstallPhase.APPLICATION_ON_CREATE)
         }
-        if (shouldInstallCompatAt(resolved, InstallPhase.APPLICATION_ON_CREATE)) {
-            RegisterReceiverCompatHook.installIfNeeded()
-            ChannelDiagLog.phase(pkg, InstallPhase.APPLICATION_ON_CREATE, "registerReceiver compat")
+        
+        if (shouldCompat(resolved, InstallPhase.APPLICATION_ON_CREATE)) RegisterReceiverCompatHook.installIfNeeded()
+        
+        if (!nativeReady && resolved.nativeActive) {
+            if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ON_CREATE) {
+                ensureNative(lpparam, app, resolved)
+            } else if (NativeLibLoader.isHostNativeReady() || resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
+                if (NativeBridge.retryInstallWithCaller(lpparam, app.javaClass)) nativeReady = true
+            }
         }
-        if (resolved.nativeInstallMode == NativeInstallMode.APPLICATION_ON_CREATE) {
-            ensureNative(lpparam, app, resolved)
-        }
-        if (resolved.nativeInstallMode == NativeInstallMode.LOAD_PACKAGE) {
-            retryNativeEarlyIfNeeded(lpparam, resolved)
-        }
-        if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED) {
-            ensureNativeDeferred(pkg, resolved)
-        }
-        finalizeNativeStealth(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
+        finalizeStealth(lpparam, resolved, InstallPhase.APPLICATION_ON_CREATE)
     }
 
-    fun ensureStealthInstalled(lpparam: XC_LoadPackage.LoadPackageParam, phase: InstallPhase) {
-        installStealth(lpparam, lpparam.packageName, phase)
-        finalizeNativeStealth(lpparam, StrategyResolver.resolve(lpparam.packageName, HookFeatureConfig.current()), phase)
+    private fun scheduleLifecycle(lpparam: XC_LoadPackage.LoadPackageParam, initial: ResolvedChannelStrategy) {
+        val hook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(p: MethodHookParam) {
+                val pkg = lpparam.packageName
+                HookConfig.refreshIfStale()
+                val res = StrategyResolver.resolve(pkg, HookConfig.features())
+                val phase = if (p.method.name == "attach") InstallPhase.APPLICATION_ATTACH else InstallPhase.APPLICATION_ON_CREATE
+                if (res.strategy.stealthInstallPhase == phase) installStealth(lpparam, pkg, phase)
+            }
+            override fun afterHookedMethod(p: MethodHookParam) {
+                val app = p.thisObject as Application
+                val pkg = lpparam.packageName
+                HookConfig.refreshIfStale()
+                val res = StrategyResolver.resolve(pkg, HookConfig.features())
+                if (p.method.name == "attach") onApplicationAttach(lpparam, app, res) else onApplicationCreate(lpparam, app, res)
+            }
+        }
+        try {
+            XposedHelpers.findAndHookMethod(Application::class.java, "attach", android.content.Context::class.java, hook)
+            XposedHelpers.findAndHookMethod(Application::class.java, "onCreate", hook)
+        } catch (_: Throwable) {}
     }
 
-    private fun finalizeNativeStealth(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        resolved: ResolvedChannelStrategy,
-        phase: InstallPhase,
-    ) {
-        if (!shouldInstallNativeStealthAt(resolved, phase)) return
-        if (resolved.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED &&
-            !NativeBridge.isHooksInstalled()
-        ) {
-            return
+    private fun scheduleIntegrity(lpparam: XC_LoadPackage.LoadPackageParam) {
+        if (integrityStarted) return
+        synchronized(this) {
+            if (integrityStarted) return
+            integrityStarted = true
+            Thread({
+                try {
+                    repeat(150) { if (NativeLibLoader.isIntegrityLibMapped()) { Thread.sleep(150); return@repeat } else Thread.sleep(20) }
+                    Thread.sleep(300)
+                    repeat(200) { currentApp()?.let { app -> onApplicationCreate(lpparam, app, StrategyResolver.resolve(lpparam.packageName, HookConfig.features())); return@repeat } ?: Thread.sleep(50) }
+                } catch (_: Throwable) {}
+            }, "YH-integrity").start()
         }
+    }
+
+    private fun currentApp(): Application? = try {
+        val at = XposedHelpers.callStaticMethod(XposedHelpers.findClass("android.app.ActivityThread", null), "currentActivityThread")
+        XposedHelpers.getObjectField(at, "mInitialApplication") as? Application
+    } catch (_: Throwable) { null }
+
+    private fun finalizeStealth(lpparam: XC_LoadPackage.LoadPackageParam, res: ResolvedChannelStrategy, phase: InstallPhase) {
+        if (phase.ordinal < res.strategy.stealthInstallPhase.ordinal) return
+        if (res.nativeInstallMode == NativeInstallMode.HOST_SHADOWHOOK_DEFERRED && !NativeBridge.isHooksInstalled()) return
         NativeStealthBridge.install(lpparam)
     }
 
-    private fun shouldInstallNativeStealthAt(
-        resolved: ResolvedChannelStrategy,
-        phase: InstallPhase,
-    ): Boolean = phase.ordinal >= resolved.strategy.stealthInstallPhase.ordinal
+    private fun shouldCompat(res: ResolvedChannelStrategy, phase: InstallPhase): Boolean = res.strategy.registerReceiverCompat && (res.strategy.channelStubInstallPhase == phase || (res.strategy.stealthInstallPhase == phase && res.strategy.channelStubInstallPhase != InstallPhase.LOAD_PACKAGE))
 
-    private fun shouldInstallCompatAt(resolved: ResolvedChannelStrategy, phase: InstallPhase): Boolean {
-        if (!resolved.strategy.registerReceiverCompat) return false
-        if (resolved.strategy.channelStubInstallPhase == phase) return true
-        if (resolved.strategy.stealthInstallPhase == phase &&
-            resolved.strategy.channelStubInstallPhase != InstallPhase.LOAD_PACKAGE
-        ) {
-            return true
-        }
-        return false
-    }
-
-    private fun ensureChannelStubs(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        resolved: ResolvedChannelStrategy,
-        phase: InstallPhase,
-    ) {
-        if (channelStubsInstalled) return
-        if (resolved.strategy.channelStubInstallPhase != phase) return
+    private fun ensureChannelStubs(lpparam: XC_LoadPackage.LoadPackageParam, res: ResolvedChannelStrategy, phase: InstallPhase) {
+        if (channelStubsInstalled || res.strategy.channelStubInstallPhase != phase) return
         synchronized(this) {
             if (channelStubsInstalled) return
-            installChannelStubs(lpparam)
-            channelStubsInstalled = true
-            ChannelDiagLog.phase(lpparam.packageName, phase, "channel stubs installed")
+            OsBuildHook.install(lpparam); SystemPropertiesHook.install(lpparam); GetpropHook.install(lpparam)
+            NativeBridge.syncFromGate(HookConfig.valuesForHook(), lpparam.packageName)
+            channelStubsInstalled = true; log(lpparam.packageName, "stubs @$phase")
         }
-    }
-
-    private fun installChannelStubs(lpparam: XC_LoadPackage.LoadPackageParam) {
-        OsBuildHook.install(lpparam)
-        SystemPropertiesHook.install(lpparam)
-        GetpropHook.install(lpparam)
-        NativeBridge.syncFromGate(HookConfig.valuesForHook(), lpparam.packageName)
     }
 
     private fun installStealth(lpparam: XC_LoadPackage.LoadPackageParam, pkg: String, phase: InstallPhase) {
         if (stealthInstalled) return
         synchronized(this) {
             if (stealthInstalled) return
-            HookFeatureConfig.refreshIfStale()
+            HookConfig.refreshIfStale()
             FeatureStealthInstaller.install(lpparam)
-            stealthInstalled = true
-            ChannelDiagLog.phase(pkg, phase, "stealth installed")
+            stealthInstalled = true; log(pkg, "stealth @$phase")
         }
     }
 
-    private fun ensureNativeDeferred(pkg: String, resolved: ResolvedChannelStrategy) {
-        if (!resolved.nativeActive) return
+    private fun retryNativeEarlyIfNeeded(lpparam: XC_LoadPackage.LoadPackageParam, res: ResolvedChannelStrategy) { if (!nativeReady && res.nativeActive) ensureNativeEarly(lpparam, res) }
+
+    private fun ensureNativeEarly(lpparam: XC_LoadPackage.LoadPackageParam, res: ResolvedChannelStrategy) {
+        val pkg = lpparam.packageName
+        if (!res.nativeActive) { NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg); return }
         if (nativeReady) return
-        if (HostShadowhookLoadGuard.tryInstallFromMaps("onCreate")) {
-            nativeReady = true
-        }
+        synchronized(this) { if (!nativeReady && NativeBridge.installEarly(lpparam)) { NativeBridge.retryDeferredHooks(pkg); nativeReady = true; log(pkg, "native early ok") } }
     }
 
-    private fun retryNativeEarlyIfNeeded(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        resolved: ResolvedChannelStrategy,
-    ) {
-        if (nativeReady || !resolved.nativeActive) return
-        ensureNativeEarly(lpparam, resolved)
-    }
-
-    private fun ensureNativeEarly(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        resolved: ResolvedChannelStrategy,
-    ) {
+    private fun ensureNative(lpparam: XC_LoadPackage.LoadPackageParam, app: Application, res: ResolvedChannelStrategy) {
         val pkg = lpparam.packageName
-        HookConfig.refreshHookCacheIfStale()
-        if (!resolved.nativeActive) {
-            NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg)
-            ChannelDiagLog.native(pkg, "early inactive sync only")
-            return
-        }
-        if (nativeReady) {
-            NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg)
-            return
-        }
-        synchronized(this) {
-            if (nativeReady) {
-                NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg)
-                return
-            }
-            try {
-                if (!NativeBridge.installEarly(lpparam)) {
-                    ChannelDiagLog.native(pkg, "early failed")
-                    return
-                }
-                NativeBridge.retryDeferredHooks(pkg)
-                nativeReady = true
-                ChannelDiagLog.native(pkg, "early ready mode=LOAD_PACKAGE")
-            } catch (e: Throwable) {
-                ChannelDiagLog.native(pkg, "early failed ${e.message}")
-            }
-        }
+        if (!res.nativeActive) { NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg); return }
+        if (nativeReady) { NativeBridge.syncProperties(HookConfig.valuesForHook(), app); return }
+        synchronized(this) { if (!nativeReady) { NativeBridge.install(lpparam, app); NativeBridge.retryDeferredHooks(pkg); nativeReady = true; log(pkg, "native ok mode=${res.nativeInstallMode}") } }
     }
 
-    private fun ensureNative(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        app: Application,
-        resolved: ResolvedChannelStrategy,
-    ) {
-        val pkg = lpparam.packageName
-        HookConfig.refreshHookCacheIfStale()
-        if (!resolved.nativeActive) {
-            NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg)
-            ChannelDiagLog.native(pkg, "inactive sync only")
-            return
-        }
-        if (nativeReady) {
-            NativeBridge.syncProperties(HookConfig.valuesForHook(), app)
-            return
-        }
-        synchronized(this) {
-            if (nativeReady) {
-                NativeBridge.syncProperties(HookConfig.valuesForHook(), app)
-                return
-            }
-            try {
-                NativeBridge.install(lpparam, app)
-                NativeBridge.retryDeferredHooks(pkg)
-                nativeReady = true
-                ChannelDiagLog.native(pkg, "ready mode=${resolved.nativeInstallMode}")
-            } catch (e: Throwable) {
-                ChannelDiagLog.native(pkg, "failed ${e.message}")
-            }
-        }
-    }
-
-    private fun ResolvedChannelStrategy.applyBuildAtPhase(phase: InstallPhase): Boolean =
-        fourChannelActive && strategy.applyBuildAtPhase == phase
+    private fun ResolvedChannelStrategy.applyBuild(phase: InstallPhase): Boolean = fourChannelActive && strategy.applyBuildAtPhase == phase
 }

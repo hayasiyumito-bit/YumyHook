@@ -1,38 +1,31 @@
 package com.yumito.yumyhook.xposed.channel
 
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import com.yumito.yumyhook.ProjectAttribution
+import de.robv.android.xposed.XposedBridge
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
-import com.yumito.yumyhook.xposed.channel.strategy.ChannelDiagLog
 import com.yumito.yumyhook.xposed.channel.strategy.ChannelInstallCoordinator
 import com.yumito.yumyhook.xposed.channel.strategy.StrategyResolver
 import com.yumito.yumyhook.xposed.policy.HookScope
 import com.yumito.yumyhook.xposed.stealth.install.FrameworkStealthInstaller
 
-/** 系统层 Hook 统一安装入口（不 Hook 任何目标 App 业务类）。 */
+/** 系统层 Hook 统一安装入口。 */
 object SystemHookInstaller {
 
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
-        HookConfig.refreshHookCache()
-        HookFeatureConfig.refresh()
-        if (HookScope.isFrameworkHookTarget(lpparam.packageName)) {
-            de.robv.android.xposed.XposedBridge.log(
-                "${XposedConstants.TAG}: hooks rev=${XposedConstants.HOOK_REV} " +
-                    "pkg=${lpparam.packageName} mode=framework-stealth-only " +
-                    "lineage=${ProjectAttribution.LINEAGE_FINGERPRINT}",
-            )
+        val pkg = lpparam.packageName
+        val values = HookConfig.refresh(pkg)
+        val enabled = HookConfig.isEnabledForHook()
+        
+        if (HookScope.isFrameworkHookTarget(pkg)) {
+            XposedBridge.log("${XposedConstants.TAG}: framework stealth rev=${XposedConstants.HOOK_REV} pkg=$pkg enabled=$enabled")
             FrameworkStealthInstaller.install(lpparam)
             return
         }
-        val features = HookFeatureConfig.refresh()
-        val resolved = StrategyResolver.resolve(lpparam.packageName, features)
-        ChannelDiagLog.strategy(lpparam.packageName, resolved)
-        de.robv.android.xposed.XposedBridge.log(
-            "${XposedConstants.TAG}: hooks rev=${XposedConstants.HOOK_REV} pkg=${lpparam.packageName} " +
-                "lineage=${ProjectAttribution.LINEAGE_FINGERPRINT}",
-        )
+        
+        val resolved = StrategyResolver.resolve(pkg, HookConfig.features())
+        XposedBridge.log("${XposedConstants.TAG}: hook rev=${XposedConstants.HOOK_REV} pkg=$pkg enabled=$enabled profile=${values.profileLabel} build=${values.buildFields.size} active=${resolved.fourChannelActive}")
+
         ChannelInstallCoordinator.onLoadPackage(lpparam, resolved)
     }
 

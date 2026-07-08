@@ -1,7 +1,6 @@
 package com.yumito.yumyhook.xposed.policy
 
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
 
 import com.yumito.yumyhook.model.HookFeatures
@@ -12,7 +11,7 @@ import com.yumito.yumyhook.model.HookFeatures
  */
 object FourChannelGate {
 
-    fun currentFeatures(): HookFeatures = HookFeatureConfig.refreshIfStale()
+    fun currentFeatures(): HookFeatures = HookConfig.features()
 
     fun isActive(packageName: String? = null): Boolean {
         if (!HookConfig.isEnabledForHook()) return false

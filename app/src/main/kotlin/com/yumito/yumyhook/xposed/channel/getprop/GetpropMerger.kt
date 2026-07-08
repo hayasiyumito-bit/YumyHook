@@ -1,7 +1,7 @@
 package com.yumito.yumyhook.xposed.channel.getprop
 
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 
 /** 将真实 getprop 全量输出与伪装属性合并，避免全量 dump 仅含少量 key 暴露 Hook。 */
@@ -18,7 +18,7 @@ object GetpropMerger {
             merged[match.groupValues[1]] = match.groupValues[2]
         }
         merged.putAll(
-            SystemPropertyMapper.allChannelProperties(values, HookFeatureConfig.current().hideRoot),
+            SystemPropertyMapper.allChannelProperties(values, HookConfig.features().hideRoot),
         )
         return merged.entries.joinToString("\n") { "[${it.key}]: [${it.value}]" }
     }

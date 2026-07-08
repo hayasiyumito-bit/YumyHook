@@ -9,8 +9,7 @@ import com.yumito.yumyhook.model.HookFeatures
 import com.yumito.yumyhook.model.StoredProfile
 import com.yumito.yumyhook.data.profile.HookProfile
 import com.yumito.yumyhook.data.profile.HookProfilesStore
-import com.yumito.yumyhook.data.lsposed.LsposedScopeReader
-import com.yumito.yumyhook.data.lsposed.ScopeLabelResolver
+import com.yumito.yumyhook.data.lsposed.LsposedConfigReader
 import com.yumito.yumyhook.xposed.channel.build.BuildSpoofGenerator
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
@@ -224,7 +223,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
         val app = getApplication<Application>()
-        val packages = LsposedScopeReader.readScopedPackages(app)
+        val packages = LsposedConfigReader.readScopedPackages(app)
             .filter { it != XposedConstants.MODULE_PACKAGE }
             .filter { it !in XposedConstants.FRAMEWORK_SCOPE_PACKAGES }
             .distinct()
@@ -232,7 +231,7 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
         _scopeChannelRows.value = packages.map { pkg ->
             ScopeChannelRow(
                 packageName = pkg,
-                label = ScopeLabelResolver.label(app, pkg),
+                label = LsposedConfigReader.resolveScopeLabel(app, pkg),
                 javaChannelEnabled = features.isJavaThreeChannelStoredFor(pkg),
                 nativeChannelEnabled = features.isNativeStoredFor(pkg),
             )

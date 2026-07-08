@@ -58,15 +58,11 @@ object XposedStatusChecker {
             ?: if (lsposedActive) "已加载" else "未检测到"
 
         syncRuntimePrefs(context, hookedInProcess, frameworkVersion, moduleEnabled, frameworkActive, useRoot)
-        val scopedPackages = if (useRoot) {
-            LsposedScopeReader.readScopedPackages(context)
-        } else {
-            rootState?.scopedPackages.orEmpty()
-        }
+        val scopedPackages = LsposedConfigReader.readScopedPackages(context, useRoot = useRoot)
         val scopedApps = buildScopedApps(context, scopedPackages)
-        val frameworkScopeEnabled = LsposedScopeReader.isFrameworkScoped(scopedPackages)
-        val systemScopeEnabled = LsposedScopeReader.hasSystemScopeEntry(scopedPackages)
-        val riskySystemScope = LsposedScopeReader.hasRiskySystemScope(scopedPackages)
+        val frameworkScopeEnabled = LsposedConfigReader.isFrameworkScoped(scopedPackages)
+        val systemScopeEnabled = LsposedConfigReader.hasSystemScopeEntry(scopedPackages)
+        val riskySystemScope = LsposedConfigReader.hasSystemScopeEntry(scopedPackages)
         val features = HookProfilesStore.loadFeatures(context)
         val stealthNeedsFrameworkScope = features.frameworkHideRoot ||
             features.frameworkHideMagisk ||
@@ -96,7 +92,7 @@ object XposedStatusChecker {
             .sorted()
             .map { pkg ->
                 ScopedAppEntry(
-                    label = ScopeLabelResolver.label(context, pkg),
+                    label = LsposedConfigReader.resolveScopeLabel(context, pkg),
                     packageName = pkg,
                 )
             }

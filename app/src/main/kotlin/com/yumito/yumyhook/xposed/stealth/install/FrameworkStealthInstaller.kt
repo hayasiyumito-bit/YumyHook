@@ -1,9 +1,9 @@
 package com.yumito.yumyhook.xposed.stealth.install
 
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
+import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.HookScope
-import com.yumito.yumyhook.xposed.stealth.root.RootPropertyStealthHook
+import com.yumito.yumyhook.xposed.stealth.root.RootStealthHook
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -60,13 +60,13 @@ object FrameworkStealthInstaller {
     private fun installHooks(lpparam: XC_LoadPackage.LoadPackageParam, source: String) {
         if (!hooksInstalled.compareAndSet(false, true)) return
         try {
-            val f = HookFeatureConfig.current()
+            val f = HookConfig.features()
             XposedBridge.log(
                 "${XposedConstants.TAG}: framework stealth rev=${XposedConstants.HOOK_REV} " +
                     "src=$source fwRoot=${f.frameworkHideRoot} fwMagisk=${f.frameworkHideMagisk}",
             )
             if (f.frameworkHideRoot) {
-                RootPropertyStealthHook.install()
+                RootStealthHook.install(lpparam)
             }
             if (f.frameworkHideMagisk) {
                 FrameworkPackageStealthHook.install(lpparam)

@@ -1,228 +1,114 @@
 package com.yumito.yumyhook.xposed.channel
 
+import android.app.Application
+import android.content.Context
+import com.yumito.yumyhook.xposed.channel.strategy.profiles.ShadowhookKnownApps
 import com.yumito.yumyhook.xposed.channel.systemproperty.SystemPropertyMapper
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.HookSpoofValues
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.policy.NativeHookPolicy
-import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
 import com.yumito.yumyhook.xposed.runtime.ModulePathHolder
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
-
-import android.content.Context
+import com.yumito.yumyhook.xposed.stealth.hide.NativeStealthBridge
+import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
+import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
-/**
- * JNI 桥：hook __system_property_get / property_get，对齐 Java getprop / SystemProperties。
- * 须在 handleLoadPackage 尽早安装，避免 ContentProvider 探测早于 Application.onCreate。
- */
+/** JNI 桥：hook __system_property_get / property_get 及其生命周期管理。 */
 object NativeBridge {
 
-    private const val MAX_NATIVE_PROP_LEN = 91
-    private const val LOG = XposedConstants.NATIVE_PROP_TAG
-
-    private fun log(msg: String) = XposedBridge.log("$LOG: $msg")
-
-    @Volatile
-    private var hooksInstalled = false
+    @Volatile private var hooksInstalled = false
+    @Volatile private var guardInstalled = false
+    private var lastDataDir: String? = null
+    private var lastCL: ClassLoader? = null
 
     fun isHooksInstalled(): Boolean = hooksInstalled
 
-    /** 宿主 crash/shadowhook 库加载后装 Native（仅 libyumyhook_native + 宿主 shadowhook）。 */
-    fun installAfterHostLibrary(dataDir: String, packageName: String, classLoader: ClassLoader): Boolean {
-        if (hooksInstalled) return true
-        if (!FourChannelGate.isActive(packageName)) return false
-        if (!NativeHookPolicy.shouldInstallNative(packageName, FourChannelGate.currentFeatures())) return false
-        if (!ensureNativeLoaded(dataDir, packageName, classLoader, reuseHostShadowhook = true)) return false
-        installHooksIfNeeded(packageName, "host-lib", libcOnly = true)
-        if (!hooksInstalled) return false
-        syncFromGate(HookConfig.valuesForHook(), packageName)
-        retryDeferredHooks(packageName)
-        return true
-    }
-
-    private var lastDataDir: String? = null
-    private var lastClassLoader: ClassLoader? = null
-
-    /** handleLoadPackage 即装 native；成功返回 true。 */
     fun installEarly(lpparam: XC_LoadPackage.LoadPackageParam): Boolean {
         val pkg = lpparam.packageName
-        if (!FourChannelGate.isActive(pkg)) {
-            logGate("installEarly-skip", pkg)
-            return false
-        }
-        if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) {
-            log("early skip policy pkg=$pkg")
-            return false
-        }
-        val dataDir = lpparam.appInfo.dataDir ?: return false
-        lastDataDir = dataDir
-        lastClassLoader = lpparam.classLoader
-        if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader, callerClass = null)) return false
-        installHooksIfNeeded(pkg, "early", dataDir = dataDir, classLoader = lpparam.classLoader)
-        if (!hooksInstalled) return false
-        syncFromGate(HookConfig.valuesForHook(), pkg)
-        return true
+        if (!FourChannelGate.isActive(pkg) || !NativeHookPolicy.shouldInstallNative(pkg, HookConfig.features())) return false
+        lastDataDir = lpparam.appInfo.dataDir; lastCL = lpparam.classLoader
+        if (!NativeLibLoader.ensureLoaded(ModulePathHolder.moduleApkPath, lastDataDir!!, pkg, lastCL)) return false
+        return installHooks(pkg, "early", lastDataDir, lastCL)
     }
 
-    /** LOAD_PACKAGE 早装失败时，用宿主 Application 作 nativeLoad caller 再试。 */
+    fun install(lpparam: XC_LoadPackage.LoadPackageParam, app: Application) {
+        val pkg = lpparam.packageName
+        if (!FourChannelGate.isActive(pkg) || !NativeHookPolicy.shouldInstallNative(pkg, HookConfig.features())) { deactivate(pkg); return }
+        lastDataDir = app.applicationInfo.dataDir; lastCL = app.classLoader
+        if (NativeLibLoader.ensureLoaded(ModulePathHolder.moduleApkPath, lastDataDir!!, pkg, lastCL, callerClass = app.javaClass)) {
+            installHooks(pkg, "app", lastDataDir, lastCL)
+        }
+    }
+
     fun retryInstallWithCaller(lpparam: XC_LoadPackage.LoadPackageParam, caller: Class<*>): Boolean {
         if (hooksInstalled) return true
-        val pkg = lpparam.packageName
-        if (!FourChannelGate.isActive(pkg)) return false
-        if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) return false
-        val dataDir = lpparam.appInfo.dataDir ?: return false
-        lastDataDir = dataDir
-        lastClassLoader = lpparam.classLoader
-        if (!ensureNativeLoaded(dataDir, pkg, lpparam.classLoader, callerClass = caller)) return false
-        installHooksIfNeeded(pkg, "caller-retry", dataDir = dataDir, classLoader = lpparam.classLoader)
-        if (!hooksInstalled) return false
-        syncFromGate(HookConfig.valuesForHook(), pkg)
-        return true
+        val pkg = lpparam.packageName; val dataDir = lpparam.appInfo.dataDir ?: return false
+        if (!NativeLibLoader.ensureLoaded(ModulePathHolder.moduleApkPath, dataDir, pkg, lpparam.classLoader, callerClass = caller)) return false
+        return installHooks(pkg, "retry", dataDir, lpparam.classLoader)
     }
 
-    fun install(lpparam: XC_LoadPackage.LoadPackageParam, hostContext: Context) {
-        val pkg = lpparam.packageName
-        if (!FourChannelGate.isActive(pkg)) {
-            logGate("install-skip", pkg)
-            deactivateNative(pkg)
-            return
-        }
-        if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) {
-            log("install skip policy pkg=$pkg")
-            deactivateNative(pkg)
-            return
-        }
-        val dataDir = hostContext.applicationInfo.dataDir
-        lastDataDir = dataDir
-        lastClassLoader = hostContext.classLoader
-        if (!ensureNativeLoaded(dataDir, pkg, hostContext.classLoader, callerClass = hostContext.javaClass)) return
-        installHooksIfNeeded(pkg, "context", dataDir = dataDir, classLoader = hostContext.classLoader)
-        syncFromGate(HookConfig.valuesForHook(), pkg)
+    private fun installHooks(pkg: String, stage: String, dir: String?, cl: ClassLoader?): Boolean {
+        if (hooksInstalled) return true
+        return try {
+            val ok = NativeJniHost.nativeInstallPropertyHook(false, dir)
+            hooksInstalled = ok
+            if (ok) { NativeLibLoader.markProcStealthActive(); syncFromGate(HookConfig.valuesForHook(), pkg); NativeStealthBridge.retryAfterNativeEngine(pkg, dir, cl) }
+            XposedBridge.log("${XposedConstants.NATIVE_PROP_TAG}: hook $stage=$ok pkg=$pkg stats=${NativeJniHost.nativeHookStats()}")
+            ok
+        } catch (_: Throwable) { false }
     }
 
-    fun syncProperties(values: HookSpoofValues, hostContext: Context?) {
-        val pkg = hostContext?.packageName ?: TargetContextHolder.packageName
-        syncFromGate(values, pkg)
-    }
+    fun syncProperties(values: HookSpoofValues, context: Context?) = syncFromGate(values, context?.packageName ?: TargetContextHolder.packageName)
 
-    /** 四通道关：清属性表 + 关 native 伪装；开：同步属性表。 */
     fun syncFromGate(values: HookSpoofValues, packageName: String?) {
         val pkg = packageName.orEmpty()
-        if (!FourChannelGate.isActive(pkg.ifBlank { null })) {
-            deactivateNative(pkg)
-            return
-        }
-        if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) {
-            deactivateNative(pkg)
-            return
+        if (!FourChannelGate.isActive(pkg.ifBlank { null }) || !NativeHookPolicy.shouldInstallNative(pkg, HookConfig.features())) { 
+            if (values.buildFields.isNotEmpty()) deactivate(pkg)
+            return 
         }
         if (!hooksInstalled) return
         try {
             NativeJniHost.nativeSetSpoofActive(true)
-            val props = SystemPropertyMapper.allChannelProperties(
-                values,
-                HookFeatureConfig.current().hideRoot,
-            ).mapValues { (_, v) -> if (v.length > MAX_NATIVE_PROP_LEN) "" else v }
+            val props = SystemPropertyMapper.allChannelProperties(values, HookConfig.features().hideRoot).mapValues { if (it.value.length > 91) "" else it.value }
             NativeJniHost.nativeUpdateProperties(props.keys.toTypedArray(), props.values.toTypedArray())
-            log("props synced count=${props.size} pkg=$pkg")
-        } catch (e: Throwable) {
-            log("sync failed: ${e.message}")
-        }
+        } catch (_: Throwable) {}
     }
 
-    private fun deactivateNative(packageName: String) {
+    private fun deactivate(pkg: String) {
         if (!hooksInstalled) return
-        try {
-            NativeJniHost.nativeSetSpoofActive(false)
-            NativeJniHost.nativeUpdateProperties(emptyArray(), emptyArray())
-            log("spoof off pkg=$packageName")
-        } catch (_: Throwable) {
-        }
+        try { NativeJniHost.nativeSetSpoofActive(false); NativeJniHost.nativeUpdateProperties(emptyArray(), emptyArray()) } catch (_: Throwable) {}
     }
 
-    private fun logGate(stage: String, packageName: String) {
-        val f = FourChannelGate.currentFeatures()
-        XposedBridge.log(
-            "${XposedConstants.TAG}: four-channel gate $stage pkg=$packageName " +
-                "master=${f.spoofBuildProperties} disabled=${f.disabledScopedFourChannel}",
-        )
-    }
+    fun retryDeferredHooks(pkg: String) { if (hooksInstalled) try { NativeJniHost.nativeRetryDeferredHooks() } catch (_: Throwable) {} }
 
-    private fun ensureNativeLoaded(
-        appDataDir: String,
-        packageName: String,
-        classLoader: ClassLoader? = null,
-        reuseHostShadowhook: Boolean = false,
-        callerClass: Class<*>? = null,
-    ): Boolean {
-        val apk = ModulePathHolder.moduleApkPath
-        if (apk.isBlank()) {
-            log("skip empty module apk path")
-            return false
-        }
-        return NativeLibLoader.ensureLoaded(
-            apk,
-            appDataDir,
-            packageName,
-            classLoader,
-            reuseHostShadowhook,
-            callerClass,
-        )
-    }
-
-    private fun installHooksIfNeeded(
-        packageName: String,
-        stage: String,
-        libcOnly: Boolean = false,
-        dataDir: String? = lastDataDir,
-        classLoader: ClassLoader? = lastClassLoader,
-    ) {
-        if (hooksInstalled) {
-            NativeStealthBridge.retryAfterNativeEngine(packageName, dataDir, classLoader)
-            retryDeferredHooks(packageName)
-            return
-        }
-        if (!NativeHookPolicy.shouldInstallNative(packageName, FourChannelGate.currentFeatures())) {
-            log("property hook $stage=skip pkg=$packageName")
-            return
-        }
-        try {
-            val ok = NativeJniHost.nativeInstallPropertyHook(libcOnly, dataDir)
-            hooksInstalled = ok
-            val probe = if (ok) NativeJniHost.nativeProbeProperty("ro.product.model") else "n/a"
-            val libcProbe = if (ok) NativeJniHost.nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
-            if (ok) {
-                HostShadowhookDetector.markProcStealthActive()
+    fun installLoadWatcher(lpparam: XC_LoadPackage.LoadPackageParam) {
+        if (guardInstalled) return
+        synchronized(this) {
+            if (guardInstalled) return
+            val cl = lpparam.classLoader; val pkg = lpparam.packageName
+            val hook = object : XC_MethodHook() {
+                override fun afterHookedMethod(p: MethodHookParam) {
+                    if (hooksInstalled) { NativeStealthBridge.install(pkg, lastDataDir, cl); return }
+                    if (NativeLibLoader.isHostNativeReady() || ShadowhookKnownApps.isKnown(pkg)) retryInstallWithCaller(lpparam, Application::class.java)
+                }
             }
-            log(
-                "rev=${XposedConstants.HOOK_REV} property hook $stage=$ok pkg=$packageName " +
-                    "probe_model=$probe libcutils_model=$libcProbe stats=${NativeJniHost.nativeHookStats()}",
-            )
-            if (ok) {
-                NativeStealthBridge.retryAfterNativeEngine(packageName, dataDir, classLoader)
-            }
-        } catch (e: Throwable) {
-            log("nativeInstallPropertyHook failed: ${e.message}")
-        }
-    }
-
-    fun retryDeferredHooks(packageName: String) {
-        if (!FourChannelGate.isActive(packageName)) return
-        if (!hooksInstalled) {
-            installHooksIfNeeded(packageName, "deferred")
-            return
-        }
-        try {
-            val ok = NativeJniHost.nativeRetryDeferredHooks()
-            val probe = NativeJniHost.nativeProbeProperty("ro.product.model")
-            val libcProbe = NativeJniHost.nativeProbeLibcutilsProperty("ro.product.model")
-            log("deferred retry=$ok pkg=$packageName probe_model=$probe libcutils_model=$libcProbe")
-        } catch (e: Throwable) {
-            log("nativeRetryDeferredHooks failed: ${e.message}")
+            try {
+                XposedHelpers.findAndHookMethod("android.app.ActivityThread", null, "handleBindApplication", "android.app.ActivityThread\$AppBindData", hook)
+                XposedHelpers.findAndHookMethod(Runtime::class.java, "loadLibrary0", Class::class.java, String::class.java, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(p: MethodHookParam) {
+                        if (hooksInstalled || (p.args[0] as Class<*>).classLoader !== cl) return
+                        if (NativeLibLoader.isHostNativeReady() || ShadowhookKnownApps.isKnown(pkg)) retryInstallWithCaller(lpparam, p.args[0] as Class<*>)
+                    }
+                    override fun afterHookedMethod(p: MethodHookParam) {
+                        if (hooksInstalled && (p.args[0] as Class<*>).classLoader === cl) NativeStealthBridge.install(pkg, lastDataDir, cl)
+                    }
+                })
+                guardInstalled = true
+            } catch (_: Throwable) {}
         }
     }
 }

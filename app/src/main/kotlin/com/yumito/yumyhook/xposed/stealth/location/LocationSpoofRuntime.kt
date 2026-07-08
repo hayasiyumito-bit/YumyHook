@@ -2,7 +2,6 @@ package com.yumito.yumyhook.xposed.stealth.location
 import android.location.Location
 import android.os.SystemClock
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 
 data class ResolvedSpoofLocation(
     val latitude: Double,
@@ -20,8 +19,8 @@ object LocationSpoofRuntime {
     )
 
     fun resolve(): ResolvedSpoofLocation? {
-        if (!HookFeatureConfig.current().spoofLocation) return null
-        val fields = HookConfig.refreshHookCacheIfStale().locationFields
+        if (!HookConfig.features().spoofLocation) return null
+        val fields = HookConfig.refreshIfStale().locationFields
         val preset = com.yumito.yumyhook.xposed.channel.LocationSpoofGenerator.fieldsOrDefault(fields)
         val lat = preset["latitude"]?.toDoubleOrNull() ?: return null
         val lng = preset["longitude"]?.toDoubleOrNull() ?: return null

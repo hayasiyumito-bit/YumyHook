@@ -1,9 +1,8 @@
 package com.yumito.yumyhook.feature.session
 
 import android.content.Context
-import com.yumito.yumyhook.data.lsposed.LsposedScopeReader
+import com.yumito.yumyhook.data.lsposed.LsposedConfigReader
 import com.yumito.yumyhook.data.lsposed.RootShell
-import com.yumito.yumyhook.data.lsposed.ScopeLabelResolver
 import com.yumito.yumyhook.data.profile.HookProfilesStore
 import com.yumito.yumyhook.xposed.config.XposedConstants
 
@@ -54,7 +53,7 @@ object HookSessionController {
             )
         }
 
-        val packages = LsposedScopeReader.readScopedPackages(context)
+        val packages = LsposedConfigReader.readScopedPackages(context)
             .filter { it != XposedConstants.MODULE_PACKAGE }
             .filter { it !in XposedConstants.FORCE_STOP_EXCLUDED_PACKAGES }
             .let { scoped ->
@@ -92,7 +91,7 @@ object HookSessionController {
         HookProfilesStore.save(context, profile.copy(hookEnabled = enabled))
     }
 
-    private fun shortLabel(context: Context, packageName: String): String {
-        return ScopeLabelResolver.label(context, packageName)
+    private    fun shortLabel(context: Context, packageName: String): String {
+        return LsposedConfigReader.resolveScopeLabel(context, packageName)
     }
 }

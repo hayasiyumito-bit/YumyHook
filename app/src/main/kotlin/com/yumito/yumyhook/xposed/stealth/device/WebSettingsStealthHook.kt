@@ -19,7 +19,7 @@ object WebSettingsStealthHook {
                 Context::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        HookConfig.refreshHookCacheIfStale()
+                        HookConfig.refreshIfStale()
                         if (!HookConfig.isEnabledForHook()) return
                         val values = HookConfig.valuesForHook()
                         val model = values.getBuildField("MODEL") ?: return

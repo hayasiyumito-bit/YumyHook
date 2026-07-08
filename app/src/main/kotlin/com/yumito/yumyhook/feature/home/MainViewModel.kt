@@ -12,156 +12,89 @@ import com.yumito.yumyhook.model.XposedStatus
 import com.yumito.yumyhook.data.publish.HookConfigPublisher
 import com.yumito.yumyhook.data.profile.HookProfilesStore
 import com.yumito.yumyhook.feature.session.HookSessionController
-import com.yumito.yumyhook.feature.session.HookSessionResult
 import com.yumito.yumyhook.data.lsposed.XposedStatusChecker
 import java.util.concurrent.Executors
 
-/** 主页 ViewModel：状态检测、Hook 会话、伪装参数展示。 */
+/** 主页 ViewModel：状态检测与 Hook 会话管理。 */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _status = MutableLiveData<XposedStatus>()
     val status: LiveData<XposedStatus> = _status
-
     private val _spoofState = MutableLiveData<SpoofUiState>()
     val spoofState: LiveData<SpoofUiState> = _spoofState
-
     private val _hookEnabled = MutableLiveData<Boolean>()
     val hookEnabled: LiveData<Boolean> = _hookEnabled
-
     private val _sessionMessage = MutableLiveData<String?>()
     val sessionMessage: LiveData<String?> = _sessionMessage
-
     private val _hookBusy = MutableLiveData(false)
     val hookBusy: LiveData<Boolean> = _hookBusy
-
     private val _frameworkHideRoot = MutableLiveData(true)
     val frameworkHideRoot: LiveData<Boolean> = _frameworkHideRoot
-
     private val _frameworkHideMagisk = MutableLiveData(true)
     val frameworkHideMagisk: LiveData<Boolean> = _frameworkHideMagisk
 
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var coldStartForceStopDone = false
+    private var coldStartDone = false
 
-    /** 冷启动：Root 深度检测 + Hook 已开则强停目标 App。 */
-    fun refreshOnOpen() {
+    fun refreshOnOpen() = refresh(useRoot = true, startup = true)
+    fun refresh(useRoot: Boolean = false) = refresh(useRoot, startup = false)
+
+    private fun refresh(useRoot: Boolean, startup: Boolean) {
         val app = getApplication<Application>()
         HookProfilesStore.ensureDefaults(app)
         val spoof = HookProfilesStore.loadSpoofValues(app)
         val features = HookProfilesStore.loadFeatures(app)
-        val summary = spoof.fullParametersSummary(features)
-        val hookState = HookSessionController.isEnabled(app)
-        worker.execute {
-            val status = XposedStatusChecker.check(app, useRoot = true)
-            val startupResult = if (!coldStartForceStopDone) {
-                coldStartForceStopDone = true
-                HookSessionController.applyOnColdStart(app)
-            } else {
-                null
-            }
-            mainHandler.post {
-                _hookEnabled.value = hookState
-                _frameworkHideRoot.value = features.frameworkHideRoot
-                _frameworkHideMagisk.value = features.frameworkHideMagisk
-                _status.value = status
-                _spoofState.value = SpoofUiState(
-                    profileLabel = features.configName,
-                    buildSummary = spoof.buildSummary(),
-                    currentFields = summary,
-                )
-                startupResult?.message?.let { _sessionMessage.value = it }
-            }
-        }
-    }
-
-    fun refresh(useRoot: Boolean = false) {
-        val app = getApplication<Application>()
-        HookProfilesStore.ensureDefaults(app)
-        val spoof = HookProfilesStore.loadSpoofValues(app)
-        val features = HookProfilesStore.loadFeatures(app)
-        val summary = spoof.fullParametersSummary(features)
-        val hookState = HookSessionController.isEnabled(app)
-        worker.execute {
-            val status = XposedStatusChecker.check(app, useRoot)
-            mainHandler.post {
-                _hookEnabled.value = hookState
-                _frameworkHideRoot.value = features.frameworkHideRoot
-                _frameworkHideMagisk.value = features.frameworkHideMagisk
-                _status.value = status
-                _spoofState.value = SpoofUiState(
-                    profileLabel = features.configName,
-                    buildSummary = spoof.buildSummary(),
-                    currentFields = summary,
-                )
-            }
-        }
-    }
-
-    /** 从子页返回：只刷新参数，不覆盖 Xposed 状态。 */
-    fun refreshSpoofOnly() {
-        val app = getApplication<Application>()
-        HookProfilesStore.ensureDefaults(app)
-        val spoof = HookProfilesStore.loadSpoofValues(app)
-        val features = HookProfilesStore.loadFeatures(app)
-        val summary = spoof.fullParametersSummary(features)
         _hookEnabled.value = HookSessionController.isEnabled(app)
         _frameworkHideRoot.value = features.frameworkHideRoot
         _frameworkHideMagisk.value = features.frameworkHideMagisk
-        _spoofState.value = SpoofUiState(
-            profileLabel = features.configName,
-            buildSummary = spoof.buildSummary(),
-            currentFields = summary,
-        )
+        _spoofState.value = SpoofUiState(features.configName, spoof.buildSummary(), spoof.fullParametersSummary(features))
+        
+        worker.execute {
+            val status = XposedStatusChecker.check(app, useRoot)
+            val res = if (startup && !coldStartDone) { coldStartDone = true; HookSessionController.applyOnColdStart(app) } else null
+            mainHandler.post { 
+                _status.value = status
+                res?.message?.let { _sessionMessage.value = it }
+            }
+        }
+    }
+
+    fun refreshSpoofOnly() {
+        val app = getApplication<Application>()
+        val spoof = HookProfilesStore.loadSpoofValues(app)
+        val features = HookProfilesStore.loadFeatures(app)
+        _hookEnabled.value = HookSessionController.isEnabled(app)
+        _frameworkHideRoot.value = features.frameworkHideRoot
+        _frameworkHideMagisk.value = features.frameworkHideMagisk
+        _spoofState.value = SpoofUiState(features.configName, spoof.buildSummary(), spoof.fullParametersSummary(features))
     }
 
     fun setHookEnabled(enabled: Boolean) {
         if (_hookBusy.value == true) return
         val app = getApplication<Application>()
-        if (!enabled) {
-            publishSessionResult(HookSessionController.disable(app))
-            return
-        }
+        if (!enabled) { updateSession(HookSessionController.disable(app)); return }
         _hookBusy.value = true
-        worker.execute {
-            val result = HookSessionController.enable(app)
-            mainHandler.post {
-                _hookBusy.value = false
-                publishSessionResult(result)
-            }
-        }
+        worker.execute { val r = HookSessionController.enable(app); mainHandler.post { _hookBusy.value = false; updateSession(r) } }
     }
 
-    fun setFrameworkHideRoot(enabled: Boolean) {
-        updateFrameworkStealth("frameworkHideRoot", enabled)
-    }
+    fun setFrameworkHideRoot(v: Boolean) = updateStealth("frameworkHideRoot", v)
+    fun setFrameworkHideMagisk(v: Boolean) = updateStealth("frameworkHideMagisk", v)
 
-    fun setFrameworkHideMagisk(enabled: Boolean) {
-        updateFrameworkStealth("frameworkHideMagisk", enabled)
-    }
-
-    private fun updateFrameworkStealth(key: String, enabled: Boolean) {
+    private fun updateStealth(key: String, v: Boolean) {
         val app = getApplication<Application>()
-        if (!HookProfilesStore.setFeature(app, key, enabled)) return
-        val features = HookProfilesStore.loadFeatures(app)
-        _frameworkHideRoot.value = features.frameworkHideRoot
-        _frameworkHideMagisk.value = features.frameworkHideMagisk
-        _sessionMessage.value = app.getString(
-            if (key == "frameworkHideRoot") {
-                if (enabled) R.string.framework_root_enabled_toast else R.string.framework_root_disabled_toast
-            } else {
-                if (enabled) R.string.framework_magisk_enabled_toast else R.string.framework_magisk_disabled_toast
-            },
-        )
+        if (!HookProfilesStore.setFeature(app, key, v)) return
+        val f = HookProfilesStore.loadFeatures(app)
+        _frameworkHideRoot.value = f.frameworkHideRoot
+        _frameworkHideMagisk.value = f.frameworkHideMagisk
+        _sessionMessage.value = app.getString(if (key == "frameworkHideRoot") (if (v) R.string.framework_root_enabled_toast else R.string.framework_root_disabled_toast) else (if (v) R.string.framework_magisk_enabled_toast else R.string.framework_magisk_disabled_toast))
     }
 
-    fun consumeSessionMessage() {
-        _sessionMessage.value = null
-    }
+    fun consumeSessionMessage() { _sessionMessage.value = null }
 
-    private fun publishSessionResult(result: HookSessionResult) {
-        _hookEnabled.value = result.enabled
-        _sessionMessage.value = result.message
+    private fun updateSession(r: com.yumito.yumyhook.feature.session.HookSessionResult) {
+        _hookEnabled.value = r.enabled
+        _sessionMessage.value = r.message
         refreshSpoofOnly()
     }
 
@@ -171,17 +104,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         worker.execute {
             val summary = HookProfilesStore.randomizeSpoof(app)
             HookConfigPublisher.publish(app)
-            val restart = HookSessionController.notifyConfigChanged(app)
+            val res = HookSessionController.notifyConfigChanged(app)
             val spoof = HookProfilesStore.loadSpoofValues(app)
-            val features = HookProfilesStore.loadFeatures(app)
+            val f = HookProfilesStore.loadFeatures(app)
             mainHandler.post {
                 _hookBusy.value = false
-                _spoofState.value = SpoofUiState(
-                    profileLabel = features.configName,
-                    buildSummary = spoof.buildSummary(),
-                    currentFields = summary,
-                )
-                restart?.message?.let { _sessionMessage.value = it }
+                _spoofState.value = SpoofUiState(f.configName, spoof.buildSummary(), summary)
+                res?.message?.let { _sessionMessage.value = it }
             }
         }
     }

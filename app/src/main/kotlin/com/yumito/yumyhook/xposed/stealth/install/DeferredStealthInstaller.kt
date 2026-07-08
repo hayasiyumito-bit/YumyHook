@@ -2,7 +2,6 @@ package com.yumito.yumyhook.xposed.stealth.install
 import android.app.Application
 import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.config.HookConfig
-import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.channel.NativeBridge
 import com.yumito.yumyhook.xposed.policy.NativeHookPolicy
 import com.yumito.yumyhook.xposed.runtime.TargetContextHolder
@@ -38,9 +37,9 @@ object DeferredStealthInstaller {
     }
 
     private fun ensureNativeReady(lpparam: XC_LoadPackage.LoadPackageParam, app: Application) {
-        HookConfig.refreshHookCacheIfStale()
+        HookConfig.refreshIfStale()
         val pkg = lpparam.packageName
-        val features = HookFeatureConfig.current()
+        val features = HookConfig.features()
         if (!FourChannelGate.isActive(pkg)) {
             NativeBridge.syncFromGate(HookConfig.valuesForHook(), pkg)
             return
