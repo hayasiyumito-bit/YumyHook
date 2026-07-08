@@ -720,7 +720,6 @@ static std::string filter_proc_status_content(const std::string &raw) {
 
 enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM, NET_UNIX };
 
-static char *(*orig___fgets_chk)(char *, int, size_t, FILE *) = nullptr;
 static char *(*orig_fgets)(char *, int, FILE *) = nullptr;
 static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
 static int (*orig_open)(const char *, int, ...) = nullptr;
@@ -767,30 +766,14 @@ static std::string read_file_to_string(const char *path) {
     if (path == nullptr || path[0] == '\0') {
         return {};
     }
-    FILE *fp = nullptr;
-    if (orig_fopen != nullptr) {
-        ProcIoBypassGuard guard;
-        fp = orig_fopen(path, "r");
-    } else {
-        fp = fopen(path, "r");
-    }
+    ProcIoBypassGuard guard;
+    FILE *fp = (orig_fopen != nullptr) ? orig_fopen(path, "r") : fopen(path, "r");
     if (fp == nullptr) {
         return {};
     }
     std::ostringstream ss;
     char buf[4096];
-    while (true) {
-        char *line = nullptr;
-        if (orig___fgets_chk != nullptr) {
-            line = orig___fgets_chk(buf, sizeof(buf), sizeof(buf), fp);
-        } else if (orig_fgets != nullptr) {
-            line = orig_fgets(buf, sizeof(buf), fp);
-        } else {
-            break;
-        }
-        if (line == nullptr) {
-            break;
-        }
+    while (fgets(buf, sizeof(buf), fp)) {
         ss << buf;
     }
     fclose(fp);
@@ -1021,29 +1004,8 @@ static int hooked_lstat(const char *pathname, struct stat *buf) {
 
 static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = nullptr;
 static ssize_t (*orig_readlink)(const char *, char *, size_t) = nullptr;
-static ssize_t (*orig_read)(int, void *, size_t) = nullptr;
 static int (*orig___faccessat)(int, const char *, int, int) = nullptr;
 static int (*orig___openat)(int, const char *, int, int) = nullptr;
-
-static bool fd_is_proc_sensitive(int fd) {
-    if (fd < 0) {
-        return false;
-    }
-    char link_path[64];
-    snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", fd);
-    char target[512];
-    ssize_t len = -1;
-    if (orig_readlink != nullptr) {
-        len = orig_readlink(link_path, target, sizeof(target) - 1);
-    } else {
-        len = readlink(link_path, target, sizeof(target) - 1);
-    }
-    if (len <= 0) {
-        return false;
-    }
-    target[len] = '\0';
-    return classify_proc_path(target) != ProcPathKind::NONE;
-}
 
 static ssize_t hooked_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsize) {
     if (proc_io_bypass() && orig_readlinkat != nullptr) {
@@ -1053,7 +1015,11 @@ static ssize_t hooked_readlinkat(int dirfd, const char *pathname, char *buf, siz
         errno = ENOENT;
         return -1;
     }
-    return orig_readlinkat(dirfd, pathname, buf, bufsize);
+    if (orig_readlinkat != nullptr) {
+        return orig_readlinkat(dirfd, pathname, buf, bufsize);
+    }
+    errno = ENOSYS;
+    return -1;
 }
 
 static ssize_t hooked_readlink(const char *pathname, char *buf, size_t bufsize) {
@@ -1064,74 +1030,11 @@ static ssize_t hooked_readlink(const char *pathname, char *buf, size_t bufsize) 
         errno = ENOENT;
         return -1;
     }
-    return orig_readlink(pathname, buf, bufsize);
-}
-
-static char *hooked_fgets(char *buf, int size, FILE *stream) {
-    if (buf == nullptr || size <= 0 || stream == nullptr || orig_fgets == nullptr) {
-        return orig_fgets(buf, size, stream);
+    if (orig_readlink != nullptr) {
+        return orig_readlink(pathname, buf, bufsize);
     }
-    if (proc_io_bypass()) {
-        return orig_fgets(buf, size, stream);
-    }
-    const int fd = fileno(stream);
-    const bool filter_proc = fd_is_proc_sensitive(fd);
-    while (true) {
-        char *line = orig_fgets(buf, size, stream);
-        if (line == nullptr || !filter_proc) {
-            return line;
-        }
-        if (!proc_line_should_hide(line)) {
-            return line;
-        }
-        if (feof(stream) != 0) {
-            return nullptr;
-        }
-    }
-}
-
-static char *hooked___fgets_chk(char *buf, int size, size_t buf_len, FILE *stream) {
-    if (buf == nullptr || size <= 0 || stream == nullptr || orig___fgets_chk == nullptr) {
-        return orig___fgets_chk != nullptr ? orig___fgets_chk(buf, size, buf_len, stream) : nullptr;
-    }
-    if (proc_io_bypass()) {
-        return orig___fgets_chk(buf, size, buf_len, stream);
-    }
-    const int fd = fileno(stream);
-    const bool filter_proc = fd_is_proc_sensitive(fd);
-    while (true) {
-        char *line = orig___fgets_chk(buf, size, buf_len, stream);
-        if (line == nullptr || !filter_proc) {
-            return line;
-        }
-        if (!proc_line_should_hide(line)) {
-            return line;
-        }
-        if (feof(stream) != 0) {
-            return nullptr;
-        }
-    }
-}
-
-static ssize_t filter_proc_read_buf(void *buf, ssize_t n) {
-    if (n <= 0 || buf == nullptr) {
-        return n;
-    }
-    std::string chunk(static_cast<const char *>(buf), static_cast<size_t>(n));
-    std::string filtered = filter_proc_maps_content(chunk);
-    if (filtered.size() < chunk.size()) {
-        memcpy(buf, filtered.c_str(), filtered.size());
-        return static_cast<ssize_t>(filtered.size());
-    }
-    return n;
-}
-
-static ssize_t hooked_read(int fd, void *buf, size_t count) {
-    const ssize_t n = orig_read(fd, buf, count);
-    if (n <= 0 || proc_io_bypass() || !fd_is_proc_sensitive(fd)) {
-        return n;
-    }
-    return filter_proc_read_buf(buf, n);
+    errno = ENOSYS;
+    return -1;
 }
 
 static int hooked___faccessat(int dirfd, const char *pathname, int mode, int flags) {
@@ -1144,11 +1047,15 @@ static int hooked___faccessat(int dirfd, const char *pathname, int mode, int fla
     if (orig___faccessat != nullptr) {
         return orig___faccessat(dirfd, pathname, mode, flags);
     }
-    return orig_faccessat(dirfd, pathname, mode, flags);
+    if (orig_faccessat != nullptr) {
+        return orig_faccessat(dirfd, pathname, mode, flags);
+    }
+    errno = ENOSYS;
+    return -1;
 }
 
 static int hooked___openat(int dirfd, const char *pathname, int flags, int mode) {
-    if (proc_io_bypass()) {
+    if (proc_io_bypass() && orig___openat != nullptr) {
         return orig___openat(dirfd, pathname, flags, mode);
     }
     if (is_root_sensitive_path(pathname)) {
@@ -1158,7 +1065,10 @@ static int hooked___openat(int dirfd, const char *pathname, int flags, int mode)
     if (redirected != -2) {
         return redirected;
     }
-    return orig___openat(dirfd, pathname, flags, mode);
+    if (orig___openat != nullptr) {
+        return orig___openat(dirfd, pathname, flags, mode);
+    }
+    return call_orig_openat(dirfd, pathname, flags, static_cast<mode_t>(mode), true);
 }
 
 static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode) {
@@ -1284,8 +1194,7 @@ static bool ensure_hook_engine_for_stealth() {
 static bool proc_stealth_critical_ready() {
     const bool path_block = orig_access != nullptr || orig_faccessat != nullptr ||
         orig___faccessat != nullptr;
-    const bool proc_read = (orig_fopen != nullptr || orig_open != nullptr) &&
-        (orig_fgets != nullptr || orig___fgets_chk != nullptr || orig_read != nullptr);
+    const bool proc_read = (orig_fopen != nullptr || orig_open != nullptr);
     return path_block && proc_read;
 }
 
@@ -1366,21 +1275,6 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     orig = nullptr;
-    if (hook_libc_sym("fgets", reinterpret_cast<void *>(hooked_fgets), &orig, "fgets(proc)")) {
-        orig_fgets = reinterpret_cast<char *(*)(char *, int, FILE *)>(orig);
-        any = true;
-    }
-    orig = nullptr;
-    if (hook_libc_sym("__fgets_chk", reinterpret_cast<void *>(hooked___fgets_chk), &orig, "__fgets_chk(proc)")) {
-        orig___fgets_chk = reinterpret_cast<char *(*)(char *, int, size_t, FILE *)>(orig);
-        any = true;
-    }
-    orig = nullptr;
-    if (hook_libc_sym("read", reinterpret_cast<void *>(hooked_read), &orig, "read(proc)")) {
-        orig_read = reinterpret_cast<ssize_t (*)(int, void *, size_t)>(orig);
-        any = true;
-    }
-    orig = nullptr;
     if (hook_libc_sym("__faccessat", reinterpret_cast<void *>(hooked___faccessat), &orig, "__faccessat(root)")) {
         orig___faccessat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
@@ -1393,15 +1287,13 @@ static bool install_proc_stealth_hooks() {
     const bool critical = proc_stealth_critical_ready();
     g_proc_stealth_installed = any;
     SLOGI(
-        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d fgets=%d __fgets_chk=%d",
+        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d",
         any ? 1 : 0,
         critical ? 1 : 0,
         orig_access != nullptr ? 1 : 0,
         orig_faccessat != nullptr ? 1 : 0,
         orig___faccessat != nullptr ? 1 : 0,
-        orig_fopen != nullptr ? 1 : 0,
-        orig_fgets != nullptr ? 1 : 0,
-        orig___fgets_chk != nullptr ? 1 : 0);
+        orig_fopen != nullptr ? 1 : 0);
     return critical;
 }
 
