@@ -144,6 +144,15 @@ object BuildSpoofGenerator {
         val supported64: String,
     )
 
+    private val OPERATORS = listOf(
+        Triple("46000", "中国移动", "cn"),
+        Triple("46001", "中国联通", "cn"),
+        Triple("46003", "中国电信", "cn"),
+        Triple("310260", "T-Mobile", "us"),
+        Triple("310410", "AT&T", "us"),
+        Triple("44010", "NTT DOCOMO", "jp"),
+    )
+
     data class RandomizeResult(
         val values: HookSpoofValues,
     )
@@ -205,15 +214,17 @@ object BuildSpoofGenerator {
             "FINGERPRINT" to fingerprint,
         )
 
+        val operator = OPERATORS.random()
         val idsFields = mapOf(
             "androidId" to androidId,
             "serialNo" to serial,
             "imei" to randomImei(),
-            "imsi" to "46000${Random.nextLong(1_000_000_000L, 9_999_999_999L)}",
+            "imsi" to "${operator.first}${Random.nextLong(1_000_000_000L, 9_999_999_999L)}",
             "phoneNo" to "1${Random.nextInt(30, 99)}${Random.nextInt(10000000, 99999999)}",
-            "simOperator" to "46000",
-            "simOperatorName" to "中国移动",
-            "simCountryIso" to "cn",
+            "simOperator" to operator.first,
+            "simOperatorName" to operator.second,
+            "simCountryIso" to operator.third,
+            "mac" to randomMac(),
         )
 
         val label = "${profile.manufacturer} ${model.model}"
@@ -232,6 +243,9 @@ object BuildSpoofGenerator {
 
     private fun randomSerial(): String =
         "R58M${randomHex(8).uppercase(Locale.US)}"
+
+    private fun randomMac(): String =
+        (1..6).joinToString(":") { Random.nextInt(256).toString(16).padStart(2, '0') }
 
     private fun randomHex(length: Int): String =
         (1..length).joinToString("") { Random.nextInt(16).toString(16) }

@@ -1,4 +1,5 @@
 package com.yumito.yumyhook.xposed.stealth.bluetooth
+import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -15,7 +16,8 @@ object BluetoothStealthHook {
                 "getAddress",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.result = "02:00:00:00:00:00"
+                        val values = HookConfig.refreshHookCacheIfStale()
+                        param.result = values.idsFields["mac"] ?: "02:00:00:00:00:00"
                     }
                 },
             )

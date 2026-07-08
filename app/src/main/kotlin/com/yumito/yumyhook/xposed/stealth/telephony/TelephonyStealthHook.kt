@@ -10,50 +10,45 @@ object TelephonyStealthHook {
 
     fun install(lpparam: XC_LoadPackage.LoadPackageParam, fullId: Boolean, simSim: Boolean) {
         if (!fullId && !simSim) return
-        val values = HookConfig.valuesForHook()
-        val simHooks = mapOf(
-            "getSimOperator" to values.idsFields["simOperator"],
-            "getSimOperatorName" to values.idsFields["simOperatorName"],
-            "getSimCountryIso" to values.idsFields["simCountryIso"],
-        )
-        val idHooks = mapOf(
-            "getSubscriberId" to values.idsFields["imsi"],
-            "getLine1Number" to values.idsFields["phoneNo"],
-            "getDeviceId" to values.idsFields["imei"],
-        )
+        
         if (simSim) {
-            hookTelephony(lpparam, simHooks)
+            hookTelephony(lpparam, "getSimOperator", "simOperator")
+            hookTelephony(lpparam, "getSimOperatorName", "simOperatorName")
+            hookTelephony(lpparam, "getSimCountryIso", "simCountryIso")
         }
         if (fullId) {
-            hookTelephony(lpparam, idHooks)
-            hookAndroidId(values.idsFields["androidId"])
+            hookTelephony(lpparam, "getSubscriberId", "imsi")
+            hookTelephony(lpparam, "getLine1Number", "phoneNo")
+            hookTelephony(lpparam, "getDeviceId", "imei")
+            hookAndroidId()
         }
     }
 
     private fun hookTelephony(
         lpparam: XC_LoadPackage.LoadPackageParam,
-        hooks: Map<String, String?>,
+        method: String,
+        fieldKey: String,
     ) {
-        for ((method, spoof) in hooks) {
-            if (spoof.isNullOrBlank()) continue
-            try {
-                XposedHelpers.findAndHookMethod(
-                    "android.telephony.TelephonyManager",
-                    lpparam.classLoader,
-                    method,
-                    object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.telephony.TelephonyManager",
+                lpparam.classLoader,
+                method,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val values = HookConfig.refreshHookCacheIfStale()
+                        val spoof = values.idsFields[fieldKey]
+                        if (!spoof.isNullOrBlank()) {
                             param.result = spoof
                         }
-                    },
-                )
-            } catch (_: Throwable) {
-            }
+                    }
+                },
+            )
+        } catch (_: Throwable) {
         }
     }
 
-    private fun hookAndroidId(androidId: String?) {
-        if (androidId.isNullOrBlank()) return
+    private fun hookAndroidId() {
         try {
             XposedHelpers.findAndHookMethod(
                 "android.provider.Settings\$Secure",
@@ -64,7 +59,11 @@ object TelephonyStealthHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (param.args[1] == "android_id") {
-                            param.result = androidId
+                            val values = HookConfig.refreshHookCacheIfStale()
+                            val androidId = values.idsFields["androidId"]
+                            if (!androidId.isNullOrBlank()) {
+                                param.result = androidId
+                            }
                         }
                     }
                 },

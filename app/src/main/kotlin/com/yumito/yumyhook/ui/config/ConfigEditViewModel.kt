@@ -47,14 +47,26 @@ class ConfigEditViewModel(application: Application) : AndroidViewModel(applicati
     val scopeNativeMasterEnabled: LiveData<Boolean> = _scopeNativeMasterEnabled
 
     val simFieldKeys: List<String> = listOf(
-        "simOperator", "simOperatorName", "simCountryIso",
+        "simOperator", "simOperatorName", "simCountryIso", "imsi", "phoneNo",
     )
 
     val deviceIdFieldKeys: List<String> = listOf(
-        "androidId", "serialNo", "imei", "imsi", "phoneNo",
+        "androidId", "serialNo", "imei", "mac",
     )
 
     val idsFieldKeys: List<String> = simFieldKeys + deviceIdFieldKeys
+
+    val idsFieldHints: Map<String, String> = mapOf(
+        "imei" to "IMEI",
+        "imsi" to "IMSI",
+        "phoneNo" to "手机号",
+        "mac" to "MAC地址",
+        "androidId" to "Android ID",
+        "serialNo" to "序列号",
+        "simOperator" to "运营商代码",
+        "simOperatorName" to "运营商名称",
+        "simCountryIso" to "国家代码",
+    )
 
     val buildFieldKeys: List<String> = listOf(
         "MODEL", "MANUFACTURER", "BRAND", "DEVICE", "PRODUCT", "BOARD", "HARDWARE",

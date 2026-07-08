@@ -362,11 +362,11 @@ class ConfigEditActivity : AppCompatActivity() {
     }
 
     private fun buildSimFieldInputs() {
-        addFieldInputs(binding.containerSimFields, viewModel.simFieldKeys, simInputs)
+        addFieldInputs(binding.containerSimFields, viewModel.simFieldKeys, simInputs, viewModel.idsFieldHints)
     }
 
     private fun buildDeviceIdFieldInputs() {
-        addFieldInputs(binding.containerDeviceIdFields, viewModel.deviceIdFieldKeys, deviceIdInputs)
+        addFieldInputs(binding.containerDeviceIdFields, viewModel.deviceIdFieldKeys, deviceIdInputs, viewModel.idsFieldHints)
     }
 
     private fun buildLocationFieldInputs() {

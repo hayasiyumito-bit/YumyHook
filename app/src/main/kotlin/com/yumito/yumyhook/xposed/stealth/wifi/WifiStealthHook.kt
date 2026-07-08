@@ -1,4 +1,5 @@
 package com.yumito.yumyhook.xposed.stealth.wifi
+import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -33,9 +34,12 @@ object WifiStealthHook {
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
                             val info = param.result ?: return
+                            val values = HookConfig.refreshHookCacheIfStale()
+                            val mac = values.idsFields["mac"] ?: "02:00:00:00:00:00"
                             try {
                                 XposedHelpers.setObjectField(info, "mSSID", "AndroidWifi")
                                 XposedHelpers.setObjectField(info, "mBSSID", "02:00:00:00:00:00")
+                                XposedHelpers.setObjectField(info, "mMacAddress", mac)
                             } catch (_: Throwable) {
                             }
                         }
