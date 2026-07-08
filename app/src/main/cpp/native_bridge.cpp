@@ -18,6 +18,9 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dlfcn.h>
+#include <fstream>
+#include <sys/syscall.h>
 
 #define LOG_TAG "YH-NATIVE-PROP"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -42,6 +45,18 @@ static std::atomic<uint32_t> g_get_hits{0};
 static std::atomic<uint32_t> g_get_spoofs{0};
 static bool g_proc_stealth_installed = false;
 static std::string g_proc_cache_dir;
+
+// --- Prototypes ---
+static int hooked_access(const char *pathname, int mode);
+static int hooked_faccessat(int dirfd, const char *pathname, int mode, int flags);
+static int hooked_faccessat2(int dirfd, const char *pathname, int mode, int flags);
+static int hooked_stat(const char *pathname, struct stat *buf);
+static int hooked_lstat(const char *pathname, struct stat *buf);
+static int hooked_open(const char *pathname, int flags, ...);
+static int hooked_openat(int dirfd, const char *pathname, int flags, ...);
+static FILE *hooked_fopen(const char *pathname, const char *mode);
+static int yh_dlsym_property_get(const char *key, char *value, const char *default_value);
+static bool is_sensitive_dlsym_name(const char *symbol);
 
 static void (*orig_read_callback)(
     const prop_info *pi,
@@ -147,13 +162,21 @@ static int yh_dlsym_property_get(const char *key, char *value, const char *defau
 }
 
 static void *(*orig_dlsym)(void *, const char *) = nullptr;
-static bool is_sensitive_dlsym_name(const char *symbol);
 
 static void *hooked_dlsym(void *handle, const char *symbol) {
-    if (symbol != nullptr && strcmp(symbol, "property_get") == 0) {
-        LOGI("dlsym property_get -> yh shim handle=%p", handle);
-        return reinterpret_cast<void *>(yh_dlsym_property_get);
+    if (symbol == nullptr) {
+        if (orig_dlsym == nullptr) return nullptr;
+        return orig_dlsym(handle, symbol);
     }
+    if (strcmp(symbol, "property_get") == 0) return reinterpret_cast<void *>(yh_dlsym_property_get);
+    if (strcmp(symbol, "access") == 0) return reinterpret_cast<void *>(hooked_access);
+    if (strcmp(symbol, "faccessat") == 0) return reinterpret_cast<void *>(hooked_faccessat);
+    if (strcmp(symbol, "open") == 0) return reinterpret_cast<void *>(hooked_open);
+    if (strcmp(symbol, "openat") == 0) return reinterpret_cast<void *>(hooked_openat);
+    if (strcmp(symbol, "fopen") == 0) return reinterpret_cast<void *>(hooked_fopen);
+    if (strcmp(symbol, "stat") == 0) return reinterpret_cast<void *>(hooked_stat);
+    if (strcmp(symbol, "lstat") == 0) return reinterpret_cast<void *>(hooked_lstat);
+
     if (is_sensitive_dlsym_name(symbol)) {
         return nullptr;
     }
@@ -300,9 +323,6 @@ static bool install_read_callback_hook() {
     }
     return g_read_callback_hooked;
 }
-
-#include <dlfcn.h>
-#include <fstream>
 
 static bool host_shadowhook_present() {
     std::ifstream maps("/proc/self/maps");
@@ -651,9 +671,9 @@ static bool proc_io_bypass() {
 static const char *kProcFilterKeywords[] = {
     "frida", "xposed", "lsposed", "lspatch", "substrate", "yumyhook", "yumyhook_native",
     "libyumyhook", "yumito", "lspd", "liblspd", "edxposed", "riru", "libriru", "zygisk",
-        "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", "magisk", "magiskpolicy",
-        "resetprop", "kernelsu", "ksu", "ksud", "apatch",
-        "supersu", "daemonsu", "busybox", nullptr,
+    "shadowhook", "bytehook", "whale", "sandhook", "epic", "pine", "dobby", "magisk", "magiskpolicy",
+    "resetprop", "kernelsu", "ksu", "ksud", "apatch", "bmax", "apd", "kernel_su",
+    "supersu", "daemonsu", "busybox", nullptr,
 };
 
 static std::string to_lower_ascii(std::string value) {
@@ -831,7 +851,7 @@ static bool is_sensitive_lib_name(const char *name) {
     const std::string lower = to_lower_ascii(name);
     static const char *kLibs[] = {
         "shadowhook", "yumyhook", "xposed", "lsposed", "frida", "riru", "lspd", "zygisk",
-        "edxposed", "substrate", "whale", "bytehook", "magisk", "kernelsu", "supersu", "busybox", nullptr,
+        "edxposed", "substrate", "whale", "bytehook", "magisk", "kernelsu", "supersu", "busybox", "apatch", "bmax", nullptr,
     };
     for (const char **lib = kLibs; *lib != nullptr; ++lib) {
         if (lower.find(*lib) != std::string::npos) {
@@ -875,12 +895,13 @@ static bool is_root_sensitive_path(const char *path) {
     if (lower.size() >= 3 && lower.compare(lower.size() - 3, 3, "/su") == 0) {
         return true;
     }
-    if (lower.find("/magisk") != std::string::npos) {
+    if (lower.find("/magisk") != std::string::npos || lower.find("/zygisk") != std::string::npos) {
         return true;
     }
     static const char *kMarkers[] = {
-        "/data/adb/", "busybox", "kernelsu", "ksu", "ksud", "apatch", "supersu", "daemonsu", "/.magisk",
-        "/debug_ramdisk/", "frida-server", "frida-gadget", "re.frida.server", "/data/local/tmp/frida", nullptr,
+        "/data/adb", "busybox", "kernelsu", "ksu", "ksud", "apatch", "bmax", "apd", "supersu", "daemonsu", "/.magisk",
+        "/debug_ramdisk", "frida-server", "frida-gadget", "re.frida.server", "/data/local/tmp/frida",
+        "/proc/sys/kernel/taint", "/proc/net/unix", nullptr,
     };
     for (const char **marker = kMarkers; *marker != nullptr; ++marker) {
         if (lower.find(*marker) != std::string::npos) {
@@ -925,8 +946,19 @@ static int deny_root_path_errno() {
     return -1;
 }
 
-static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode);
-static int call_orig_openat(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode);
+static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode) {
+    if (has_mode) {
+        return orig_open(pathname, flags, mode);
+    }
+    return orig_open(pathname, flags);
+}
+
+static int call_orig_openat(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode) {
+    if (has_mode) {
+        return orig_openat(dirfd, pathname, flags, mode);
+    }
+    return orig_openat(dirfd, pathname, flags);
+}
 
 static int open_proc_redirect(const char *pathname, int flags, mode_t mode, bool has_mode) {
     const ProcPathKind kind = classify_proc_path(pathname);
@@ -959,104 +991,133 @@ static int openat_proc_redirect(int dirfd, const char *pathname, int flags, mode
 }
 
 static int hooked_access(const char *pathname, int mode) {
-    if (proc_io_bypass() && orig_access != nullptr) {
-        return orig_access(pathname, mode);
-    }
-    if (is_root_sensitive_path(pathname)) {
-        return deny_root_path_errno();
-    }
-    if (orig_access != nullptr) {
-        return orig_access(pathname, mode);
-    }
-    errno = ENOSYS;
-    return -1;
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_access, pathname, mode);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_access, pathname, mode);
 }
 
 static int hooked_faccessat(int dirfd, const char *pathname, int mode, int flags) {
-    if (proc_io_bypass() && orig_faccessat != nullptr) {
-        return orig_faccessat(dirfd, pathname, mode, flags);
-    }
-    if (is_root_sensitive_path(pathname)) {
-        return deny_root_path_errno();
-    }
-    return orig_faccessat(dirfd, pathname, mode, flags);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_faccessat, dirfd, pathname, mode, flags);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_faccessat, dirfd, pathname, mode, flags);
+}
+
+static int hooked_faccessat2(int dirfd, const char *pathname, int mode, int flags) {
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_faccessat2, dirfd, pathname, mode, flags);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_faccessat2, dirfd, pathname, mode, flags);
 }
 
 static int hooked_stat(const char *pathname, struct stat *buf) {
-    if (proc_io_bypass() && orig_stat != nullptr) {
-        return orig_stat(pathname, buf);
-    }
-    if (is_root_sensitive_path(pathname)) {
-        return deny_root_path_errno();
-    }
-    return orig_stat(pathname, buf);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_stat, pathname, buf);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_stat, pathname, buf);
 }
 
 static int hooked_lstat(const char *pathname, struct stat *buf) {
-    if (proc_io_bypass() && orig_lstat != nullptr) {
-        return orig_lstat(pathname, buf);
-    }
-    if (is_root_sensitive_path(pathname)) {
-        return deny_root_path_errno();
-    }
-    return orig_lstat(pathname, buf);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_lstat, pathname, buf);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_lstat, pathname, buf);
+}
+
+static int hooked_statx(int dirfd, const char *pathname, int flags, unsigned int mask, void *statxbuf) {
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_statx, dirfd, pathname, flags, mask, statxbuf);
+    if (is_root_sensitive_path(pathname)) return deny_root_path_errno();
+    return SHADOWHOOK_CALL_PREV(hooked_statx, dirfd, pathname, flags, mask, statxbuf);
 }
 
 static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = nullptr;
 static ssize_t (*orig_readlink)(const char *, char *, size_t) = nullptr;
 static int (*orig___faccessat)(int, const char *, int, int) = nullptr;
 static int (*orig___openat)(int, const char *, int, int) = nullptr;
+static ssize_t (*orig_read)(int, void *, size_t) = nullptr;
+
+static bool fd_is_proc_sensitive(int fd) {
+    if (fd < 0) return false;
+    ProcIoBypassGuard guard;
+    char link_path[64];
+    snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", fd);
+    char target[512];
+    ssize_t len = (orig_readlink != nullptr) ? orig_readlink(link_path, target, sizeof(target) - 1) : readlink(link_path, target, sizeof(target) - 1);
+    if (len <= 0) return false;
+    target[len] = '\0';
+    return classify_proc_path(target) != ProcPathKind::NONE;
+}
 
 static ssize_t hooked_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsize) {
-    if (proc_io_bypass() && orig_readlinkat != nullptr) {
-        return orig_readlinkat(dirfd, pathname, buf, bufsize);
-    }
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_readlinkat, dirfd, pathname, buf, bufsize);
     if (is_root_sensitive_path(pathname)) {
         errno = ENOENT;
         return -1;
     }
-    if (orig_readlinkat != nullptr) {
-        return orig_readlinkat(dirfd, pathname, buf, bufsize);
-    }
-    errno = ENOSYS;
-    return -1;
+    return SHADOWHOOK_CALL_PREV(hooked_readlinkat, dirfd, pathname, buf, bufsize);
 }
 
 static ssize_t hooked_readlink(const char *pathname, char *buf, size_t bufsize) {
-    if (proc_io_bypass() && orig_readlink != nullptr) {
-        return orig_readlink(pathname, buf, bufsize);
-    }
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) return SHADOWHOOK_CALL_PREV(hooked_readlink, pathname, buf, bufsize);
     if (is_root_sensitive_path(pathname)) {
         errno = ENOENT;
         return -1;
     }
-    if (orig_readlink != nullptr) {
-        return orig_readlink(pathname, buf, bufsize);
+    return SHADOWHOOK_CALL_PREV(hooked_readlink, pathname, buf, bufsize);
+}
+
+static char *hooked_fgets(char *buf, int size, FILE *stream) {
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked_fgets, buf, size, stream);
     }
-    errno = ENOSYS;
-    return -1;
+    const int fd = fileno(stream);
+    const bool filter_proc = fd_is_proc_sensitive(fd);
+    while (true) {
+        char *line = SHADOWHOOK_CALL_PREV(hooked_fgets, buf, size, stream);
+        if (line == nullptr || !filter_proc) return line;
+        if (!proc_line_should_hide(line)) return line;
+        if (feof(stream) != 0) return nullptr;
+    }
+}
+
+static ssize_t filter_proc_read_buf(void *buf, ssize_t n) {
+    if (n <= 0 || buf == nullptr) return n;
+    std::string chunk(static_cast<const char *>(buf), static_cast<size_t>(n));
+    std::string filtered = filter_proc_maps_content(chunk);
+    if (filtered.size() < chunk.size()) {
+        memcpy(buf, filtered.c_str(), filtered.size());
+        return static_cast<ssize_t>(filtered.size());
+    }
+    return n;
+}
+
+static ssize_t hooked_read(int fd, void *buf, size_t count) {
+    SHADOWHOOK_STACK_SCOPE();
+    ssize_t n = SHADOWHOOK_CALL_PREV(hooked_read, fd, buf, count);
+    if (n <= 0 || proc_io_bypass() || !fd_is_proc_sensitive(fd)) return n;
+    return filter_proc_read_buf(buf, n);
 }
 
 static int hooked___faccessat(int dirfd, const char *pathname, int mode, int flags) {
-    if (proc_io_bypass() && orig___faccessat != nullptr) {
-        return orig___faccessat(dirfd, pathname, mode, flags);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked___faccessat, dirfd, pathname, mode, flags);
     }
     if (is_root_sensitive_path(pathname)) {
         return deny_root_path_errno();
     }
-    if (orig___faccessat != nullptr) {
-        return orig___faccessat(dirfd, pathname, mode, flags);
-    }
-    if (orig_faccessat != nullptr) {
-        return orig_faccessat(dirfd, pathname, mode, flags);
-    }
-    errno = ENOSYS;
-    return -1;
+    return SHADOWHOOK_CALL_PREV(hooked___faccessat, dirfd, pathname, mode, flags);
 }
 
 static int hooked___openat(int dirfd, const char *pathname, int flags, int mode) {
-    if (proc_io_bypass() && orig___openat != nullptr) {
-        return orig___openat(dirfd, pathname, flags, mode);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked___openat, dirfd, pathname, flags, mode);
     }
     if (is_root_sensitive_path(pathname)) {
         return deny_root_path_errno();
@@ -1065,38 +1126,11 @@ static int hooked___openat(int dirfd, const char *pathname, int flags, int mode)
     if (redirected != -2) {
         return redirected;
     }
-    if (orig___openat != nullptr) {
-        return orig___openat(dirfd, pathname, flags, mode);
-    }
-    return call_orig_openat(dirfd, pathname, flags, static_cast<mode_t>(mode), true);
-}
-
-static int call_orig_open(const char *pathname, int flags, mode_t mode, bool has_mode) {
-    if (has_mode) {
-        return orig_open(pathname, flags, mode);
-    }
-    return orig_open(pathname, flags);
-}
-
-static int call_orig_openat(int dirfd, const char *pathname, int flags, mode_t mode, bool has_mode) {
-    if (has_mode) {
-        return orig_openat(dirfd, pathname, flags, mode);
-    }
-    return orig_openat(dirfd, pathname, flags);
+    return SHADOWHOOK_CALL_PREV(hooked___openat, dirfd, pathname, flags, mode);
 }
 
 static int hooked_open(const char *pathname, int flags, ...) {
-    if (proc_io_bypass()) {
-        mode_t mode = 0;
-        const bool has_mode = (flags & O_CREAT) != 0;
-        if (has_mode) {
-            va_list ap;
-            va_start(ap, flags);
-            mode = static_cast<mode_t>(va_arg(ap, int));
-            va_end(ap);
-        }
-        return call_orig_open(pathname, flags, mode, has_mode);
-    }
+    SHADOWHOOK_STACK_SCOPE();
     mode_t mode = 0;
     const bool has_mode = (flags & O_CREAT) != 0;
     if (has_mode) {
@@ -1104,6 +1138,9 @@ static int hooked_open(const char *pathname, int flags, ...) {
         va_start(ap, flags);
         mode = static_cast<mode_t>(va_arg(ap, int));
         va_end(ap);
+    }
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked_open, pathname, flags, mode);
     }
     if (is_root_sensitive_path(pathname)) {
         return deny_root_path_errno();
@@ -1112,21 +1149,11 @@ static int hooked_open(const char *pathname, int flags, ...) {
     if (redirected != -2) {
         return redirected;
     }
-    return call_orig_open(pathname, flags, mode, has_mode);
+    return SHADOWHOOK_CALL_PREV(hooked_open, pathname, flags, mode);
 }
 
 static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
-    if (proc_io_bypass()) {
-        mode_t mode = 0;
-        const bool has_mode = (flags & O_CREAT) != 0;
-        if (has_mode) {
-            va_list ap;
-            va_start(ap, flags);
-            mode = static_cast<mode_t>(va_arg(ap, int));
-            va_end(ap);
-        }
-        return call_orig_openat(dirfd, pathname, flags, mode, has_mode);
-    }
+    SHADOWHOOK_STACK_SCOPE();
     mode_t mode = 0;
     const bool has_mode = (flags & O_CREAT) != 0;
     if (has_mode) {
@@ -1135,6 +1162,9 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
         mode = static_cast<mode_t>(va_arg(ap, int));
         va_end(ap);
     }
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked_openat, dirfd, pathname, flags, mode);
+    }
     if (is_root_sensitive_path(pathname)) {
         return deny_root_path_errno();
     }
@@ -1142,12 +1172,13 @@ static int hooked_openat(int dirfd, const char *pathname, int flags, ...) {
     if (redirected != -2) {
         return redirected;
     }
-    return call_orig_openat(dirfd, pathname, flags, mode, has_mode);
+    return SHADOWHOOK_CALL_PREV(hooked_openat, dirfd, pathname, flags, mode);
 }
 
 static FILE *hooked_fopen(const char *pathname, const char *mode) {
-    if (proc_io_bypass() && orig_fopen != nullptr) {
-        return orig_fopen(pathname, mode);
+    SHADOWHOOK_STACK_SCOPE();
+    if (proc_io_bypass()) {
+        return SHADOWHOOK_CALL_PREV(hooked_fopen, pathname, mode);
     }
     if (is_root_sensitive_path(pathname)) {
         errno = ENOENT;
@@ -1161,12 +1192,13 @@ static FILE *hooked_fopen(const char *pathname, const char *mode) {
     if (kind != ProcPathKind::NONE) {
         const std::string redirect = write_filtered_proc_temp(kind);
         if (!redirect.empty()) {
-            return orig_fopen(redirect.c_str(), mode);
+            ProcIoBypassGuard guard;
+            return fopen(redirect.c_str(), mode);
         }
         errno = ENOENT;
         return nullptr;
     }
-    return orig_fopen(pathname, mode);
+    return SHADOWHOOK_CALL_PREV(hooked_fopen, pathname, mode);
 }
 
 struct DlIterateCtx {
@@ -1255,6 +1287,14 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     orig = nullptr;
+    if (hook_libc_sym("faccessat2", reinterpret_cast<void *>(hooked_faccessat2), &orig, "faccessat2(root)")) {
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_libc_sym("statx", reinterpret_cast<void *>(hooked_statx), &orig, "statx(root)")) {
+        any = true;
+    }
+    orig = nullptr;
     if (hook_libc_sym("stat", reinterpret_cast<void *>(hooked_stat), &orig, "stat(root)")) {
         orig_stat = reinterpret_cast<int (*)(const char *, struct stat *)>(orig);
         any = true;
@@ -1275,6 +1315,16 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     orig = nullptr;
+    if (hook_libc_sym("fgets", reinterpret_cast<void *>(hooked_fgets), &orig, "fgets(proc)")) {
+        orig_fgets = reinterpret_cast<char *(*)(char *, int, FILE *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_libc_sym("read", reinterpret_cast<void *>(hooked_read), &orig, "read(proc)")) {
+        orig_read = reinterpret_cast<ssize_t (*)(int, void *, size_t)>(orig);
+        any = true;
+    }
+    orig = nullptr;
     if (hook_libc_sym("__faccessat", reinterpret_cast<void *>(hooked___faccessat), &orig, "__faccessat(root)")) {
         orig___faccessat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
@@ -1287,13 +1337,15 @@ static bool install_proc_stealth_hooks() {
     const bool critical = proc_stealth_critical_ready();
     g_proc_stealth_installed = any;
     SLOGI(
-        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d",
+        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d fgets=%d read=%d",
         any ? 1 : 0,
         critical ? 1 : 0,
         orig_access != nullptr ? 1 : 0,
         orig_faccessat != nullptr ? 1 : 0,
         orig___faccessat != nullptr ? 1 : 0,
-        orig_fopen != nullptr ? 1 : 0);
+        orig_fopen != nullptr ? 1 : 0,
+        orig_fgets != nullptr ? 1 : 0,
+        orig_read != nullptr ? 1 : 0);
     return critical;
 }
 
