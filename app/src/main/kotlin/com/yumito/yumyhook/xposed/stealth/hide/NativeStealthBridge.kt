@@ -1,6 +1,7 @@
 package com.yumito.yumyhook.xposed.stealth.hide
 
 import com.yumito.yumyhook.xposed.channel.HostShadowhookDetector
+import com.yumito.yumyhook.xposed.channel.NativeJniHost
 import com.yumito.yumyhook.xposed.channel.NativeLibLoader
 import com.yumito.yumyhook.xposed.config.HookFeatureConfig
 import com.yumito.yumyhook.xposed.config.XposedConstants
@@ -32,7 +33,7 @@ object NativeStealthBridge {
             if (procHooksInstalled) return true
             if (!ensureLibLoaded(packageName, dataDir, classLoader)) return false
             return try {
-                if (nativeInstallProcStealth(dataDir!!)) {
+                if (NativeJniHost.nativeInstallProcStealth(dataDir!!)) {
                     procHooksInstalled = true
                     XposedBridge.log(
                         "${XposedConstants.NATIVE_STEALTH_TAG}: proc stealth installed pkg=$packageName",
@@ -85,7 +86,4 @@ object NativeStealthBridge {
         }
         return libLoaded
     }
-
-    @JvmStatic
-    private external fun nativeInstallProcStealth(cacheDir: String): Boolean
 }

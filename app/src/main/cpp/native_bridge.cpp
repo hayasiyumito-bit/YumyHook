@@ -226,6 +226,23 @@ static bool hook_sym(const char *lib, const char *sym, void *new_func, void **or
     return false;
 }
 
+static bool hook_libc_sym(const char *sym, void *new_func, void **orig_func, const char *label) {
+    static const char *kLibcPaths[] = {
+        "libc.so",
+        "/apex/com.android.runtime/lib64/bionic/libc.so",
+        "/apex/com.android.runtime/lib/bionic/libc.so",
+        "/system/lib64/libc.so",
+        "/system/lib/libc.so",
+        nullptr,
+    };
+    for (const char **lib = kLibcPaths; *lib != nullptr; ++lib) {
+        if (hook_sym(*lib, sym, new_func, orig_func, label)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool install_libcutils_property_get() {
     if (g_property_get_hooked) {
         return true;
@@ -463,7 +480,7 @@ static void ensure_proc_cache_dir(const char *dir) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeInstallPropertyHook(
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeInstallPropertyHook(
     JNIEnv *env,
     jclass,
     jboolean libc_only,
@@ -481,12 +498,12 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeInstallPropertyHook(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeRetryDeferredHooks(JNIEnv *, jclass) {
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeRetryDeferredHooks(JNIEnv *, jclass) {
     return retry_deferred_hooks() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeProperty(JNIEnv *env, jclass, jstring jname) {
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeProbeProperty(JNIEnv *env, jclass, jstring jname) {
     if (jname == nullptr) {
         return env->NewStringUTF("");
     }
@@ -501,7 +518,7 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeProperty(JNIEnv 
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeLibcutilsProperty(
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeProbeLibcutilsProperty(
     JNIEnv *env,
     jclass,
     jstring jname
@@ -533,7 +550,7 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeProbeLibcutilsPropert
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeHookStats(JNIEnv *env, jclass) {
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeHookStats(JNIEnv *env, jclass) {
     char buf[160];
     snprintf(
         buf,
@@ -550,7 +567,7 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeHookStats(JNIEnv *env
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeSetSpoofActive(JNIEnv *, jclass, jboolean active) {
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeSetSpoofActive(JNIEnv *, jclass, jboolean active) {
     g_spoof_active.store(active == JNI_TRUE, std::memory_order_relaxed);
     if (!g_spoof_active.load(std::memory_order_relaxed)) {
         pthread_rwlock_wrlock(&g_lock);
@@ -561,7 +578,7 @@ Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeSetSpoofActive(JNIEnv
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_yumito_yumyhook_xposed_channel_NativeBridge_nativeUpdateProperties(
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeUpdateProperties(
     JNIEnv *env,
     jclass,
     jobjectArray keys,
@@ -703,6 +720,7 @@ static std::string filter_proc_status_content(const std::string &raw) {
 
 enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM, NET_UNIX };
 
+static char *(*orig___fgets_chk)(char *, int, size_t, FILE *) = nullptr;
 static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
 static int (*orig_open)(const char *, int, ...) = nullptr;
 static int (*orig_openat)(int, const char *, int, ...) = nullptr;
@@ -1058,6 +1076,26 @@ static char *hooked_fgets(char *buf, int size, FILE *stream) {
     }
 }
 
+static char *hooked___fgets_chk(char *buf, int size, size_t buf_len, FILE *stream) {
+    if (buf == nullptr || size <= 0 || stream == nullptr || orig___fgets_chk == nullptr) {
+        return orig___fgets_chk != nullptr ? orig___fgets_chk(buf, size, buf_len, stream) : nullptr;
+    }
+    const int fd = fileno(stream);
+    const bool filter_proc = !proc_io_bypass() && fd_is_proc_sensitive(fd);
+    while (true) {
+        char *line = orig___fgets_chk(buf, size, buf_len, stream);
+        if (line == nullptr || !filter_proc) {
+            return line;
+        }
+        if (!proc_line_should_hide(line)) {
+            return line;
+        }
+        if (feof(stream) != 0) {
+            return nullptr;
+        }
+    }
+}
+
 static ssize_t filter_proc_read_buf(void *buf, ssize_t n) {
     if (n <= 0 || buf == nullptr) {
         return n;
@@ -1230,7 +1268,7 @@ static bool proc_stealth_critical_ready() {
     const bool path_block = orig_access != nullptr || orig_faccessat != nullptr ||
         orig___faccessat != nullptr;
     const bool proc_read = (orig_fopen != nullptr || orig_open != nullptr) &&
-        (orig_fgets != nullptr || orig_read != nullptr);
+        (orig_fgets != nullptr || orig___fgets_chk != nullptr || orig_read != nullptr);
     return path_block && proc_read;
 }
 
@@ -1247,17 +1285,17 @@ static bool install_proc_stealth_hooks() {
     }
     bool any = g_proc_stealth_installed;
     void *orig = nullptr;
-    if (hook_sym("libc.so", "open", reinterpret_cast<void *>(hooked_open), &orig, "open(proc)")) {
+    if (hook_libc_sym("open", reinterpret_cast<void *>(hooked_open), &orig, "open(proc)")) {
         orig_open = reinterpret_cast<int (*)(const char *, int, ...)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "openat", reinterpret_cast<void *>(hooked_openat), &orig, "openat(proc)")) {
+    if (hook_libc_sym("openat", reinterpret_cast<void *>(hooked_openat), &orig, "openat(proc)")) {
         orig_openat = reinterpret_cast<int (*)(int, const char *, int, ...)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "fopen", reinterpret_cast<void *>(hooked_fopen), &orig, "fopen(proc)")) {
+    if (hook_libc_sym("fopen", reinterpret_cast<void *>(hooked_fopen), &orig, "fopen(proc)")) {
         orig_fopen = reinterpret_cast<FILE *(*)(const char *, const char *)>(orig);
         any = true;
     }
@@ -1271,7 +1309,7 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "getenv", reinterpret_cast<void *>(hooked_getenv), &orig, "getenv(stealth)")) {
+    if (hook_libc_sym("getenv", reinterpret_cast<void *>(hooked_getenv), &orig, "getenv(stealth)")) {
         orig_getenv = reinterpret_cast<char *(*)(const char *)>(orig);
         any = true;
     }
@@ -1281,66 +1319,72 @@ static bool install_proc_stealth_hooks() {
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "access", reinterpret_cast<void *>(hooked_access), &orig, "access(root)")) {
+    if (hook_libc_sym("access", reinterpret_cast<void *>(hooked_access), &orig, "access(root)")) {
         orig_access = reinterpret_cast<int (*)(const char *, int)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "faccessat", reinterpret_cast<void *>(hooked_faccessat), &orig, "faccessat(root)")) {
+    if (hook_libc_sym("faccessat", reinterpret_cast<void *>(hooked_faccessat), &orig, "faccessat(root)")) {
         orig_faccessat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "stat", reinterpret_cast<void *>(hooked_stat), &orig, "stat(root)")) {
+    if (hook_libc_sym("stat", reinterpret_cast<void *>(hooked_stat), &orig, "stat(root)")) {
         orig_stat = reinterpret_cast<int (*)(const char *, struct stat *)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "lstat", reinterpret_cast<void *>(hooked_lstat), &orig, "lstat(root)")) {
+    if (hook_libc_sym("lstat", reinterpret_cast<void *>(hooked_lstat), &orig, "lstat(root)")) {
         orig_lstat = reinterpret_cast<int (*)(const char *, struct stat *)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "readlinkat", reinterpret_cast<void *>(hooked_readlinkat), &orig, "readlinkat(root)")) {
+    if (hook_libc_sym("readlinkat", reinterpret_cast<void *>(hooked_readlinkat), &orig, "readlinkat(root)")) {
         orig_readlinkat = reinterpret_cast<ssize_t (*)(int, const char *, char *, size_t)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "readlink", reinterpret_cast<void *>(hooked_readlink), &orig, "readlink(root)")) {
+    if (hook_libc_sym("readlink", reinterpret_cast<void *>(hooked_readlink), &orig, "readlink(root)")) {
         orig_readlink = reinterpret_cast<ssize_t (*)(const char *, char *, size_t)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "fgets", reinterpret_cast<void *>(hooked_fgets), &orig, "fgets(proc)")) {
+    if (hook_libc_sym("fgets", reinterpret_cast<void *>(hooked_fgets), &orig, "fgets(proc)")) {
         orig_fgets = reinterpret_cast<char *(*)(char *, int, FILE *)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "read", reinterpret_cast<void *>(hooked_read), &orig, "read(proc)")) {
+    if (hook_libc_sym("__fgets_chk", reinterpret_cast<void *>(hooked___fgets_chk), &orig, "__fgets_chk(proc)")) {
+        orig___fgets_chk = reinterpret_cast<char *(*)(char *, int, size_t, FILE *)>(orig);
+        any = true;
+    }
+    orig = nullptr;
+    if (hook_libc_sym("read", reinterpret_cast<void *>(hooked_read), &orig, "read(proc)")) {
         orig_read = reinterpret_cast<ssize_t (*)(int, void *, size_t)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "__faccessat", reinterpret_cast<void *>(hooked___faccessat), &orig, "__faccessat(root)")) {
+    if (hook_libc_sym("__faccessat", reinterpret_cast<void *>(hooked___faccessat), &orig, "__faccessat(root)")) {
         orig___faccessat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
     }
     orig = nullptr;
-    if (hook_sym("libc.so", "__openat", reinterpret_cast<void *>(hooked___openat), &orig, "__openat(proc)")) {
+    if (hook_libc_sym("__openat", reinterpret_cast<void *>(hooked___openat), &orig, "__openat(proc)")) {
         orig___openat = reinterpret_cast<int (*)(int, const char *, int, int)>(orig);
         any = true;
     }
     const bool critical = proc_stealth_critical_ready();
     g_proc_stealth_installed = any;
     SLOGI(
-        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d fgets=%d",
+        "proc stealth installed=%d critical=%d access=%d faccessat=%d __faccessat=%d fopen=%d fgets=%d __fgets_chk=%d",
         any ? 1 : 0,
         critical ? 1 : 0,
         orig_access != nullptr ? 1 : 0,
         orig_faccessat != nullptr ? 1 : 0,
         orig___faccessat != nullptr ? 1 : 0,
         orig_fopen != nullptr ? 1 : 0,
-        orig_fgets != nullptr ? 1 : 0);
+        orig_fgets != nullptr ? 1 : 0,
+        orig___fgets_chk != nullptr ? 1 : 0);
     return critical;
 }
 
@@ -1360,7 +1404,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_yumito_yumyhook_xposed_stealth_hide_NativeStealthBridge_nativeInstallProcStealth(
+Java_com_yumito_yumyhook_xposed_channel_NativeJni_nativeInstallProcStealth(
     JNIEnv *env,
     jclass,
     jstring jCacheDir

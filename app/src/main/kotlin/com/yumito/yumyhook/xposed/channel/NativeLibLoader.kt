@@ -4,16 +4,18 @@ import android.content.Context
 import android.os.Build
 import com.yumito.yumyhook.xposed.channel.strategy.profiles.ShadowhookKnownApps
 import com.yumito.yumyhook.xposed.config.XposedConstants
+import dalvik.system.BaseDexClassLoader
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.io.File
 import java.lang.reflect.Method
 import java.util.zip.ZipFile
 
-/** 从模块 APK 解压 .so 到宿主 cache，经宿主 ClassLoader 命名空间加载（与 libdevice.so 等同域）。 */
+/** 从模块 APK 解压 .so 到宿主 code_cache，经宿主 ClassLoader 命名空间加载（与 libdevice.so 等同域）。 */
 object NativeLibLoader {
 
-    private const val EXTRACT_DIR = "cache/yumyhook_native"
+    /** cache/ 不在 SDK 34 linker permitted_path；code_cache 可 dlopen。 */
+    private const val EXTRACT_DIR = "code_cache/yumyhook_native"
 
     private val NATIVE_LIBS = listOf("libshadowhook.so", "libyumyhook_native.so")
     private val NATIVE_ONLY = listOf("libyumyhook_native.so")
@@ -79,7 +81,7 @@ object NativeLibLoader {
     }
 
     private fun purgeStaleExtract(appDataDir: String) {
-        listOf("code_cache/yumyhook_native", EXTRACT_DIR).forEach { rel ->
+        listOf("cache/yumyhook_native", EXTRACT_DIR).forEach { rel ->
             val dir = File(appDataDir, rel)
             if (!dir.exists()) return@forEach
             dir.listFiles()?.forEach { it.delete() }
@@ -113,9 +115,8 @@ object NativeLibLoader {
                 dest.setExecutable(true, false)
             }
         }
-        for (libName in libs) {
-            loadNativeInHostNamespace(classLoader, File(destDir, libName).absolutePath, callerClass)
-        }
+        loadNativeLibsInHostNamespace(moduleApkPath, classLoader, destDir, libs)
+        NativeJniHost.bind(classLoader, moduleApkPath)
         loaded = true
         XposedBridge.log(
             "${XposedConstants.TAG}: native loaded host-ns abi=$abi libs=${libs.joinToString()} " +
@@ -124,19 +125,61 @@ object NativeLibLoader {
         return true
     }
 
-    /**
-     * 必须在宿主 ClassLoader 的 linker namespace 加载，禁止回退 System.load（会进模块隔离 ns）。
-     * Android 14+ 封禁 Runtime.load(path, ClassLoader)；走 VMRuntime.nativeLoad（反射 ClassLoader 签名）。
-     */
+    private fun loadNativeLibsInHostNamespace(
+        moduleApkPath: String,
+        hostClassLoader: ClassLoader,
+        destDir: File,
+        libFileNames: List<String>,
+    ) {
+        NativeJniHost.ensureModuleDexOnHost(hostClassLoader, moduleApkPath)
+        val dexLoader = hostClassLoader as? BaseDexClassLoader
+            ?: throw IllegalStateException(
+                "host ClassLoader is not BaseDexClassLoader: ${hostClassLoader.javaClass.name}",
+            )
+        XposedHelpers.callMethod(dexLoader, "addNativePath", listOf(destDir.absolutePath))
+        val bridgeCaller = NativeJniHost.hostClass(
+            "com.yumito.yumyhook.xposed.channel.NativeJni",
+            hostClassLoader,
+            moduleApkPath,
+        )
+        for (libName in libFileNames) {
+            val libCaller = if (libName.contains("shadowhook")) {
+                NativeJniHost.hostClass(
+                    "com.bytedance.shadowhook.ShadowHook",
+                    hostClassLoader,
+                    moduleApkPath,
+                )
+            } else {
+                bridgeCaller
+            }
+            loadNativeInHostNamespace(
+                hostClassLoader,
+                File(destDir, libName).absolutePath,
+                libCaller,
+            )
+        }
+    }
+
     private fun loadNativeInHostNamespace(
         hostClassLoader: ClassLoader,
         absolutePath: String,
-        preferredCaller: Class<*>?,
+        caller: Class<*>,
     ) {
         var lastError: Throwable? = null
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                loadViaRuntimeNativeLoad(hostClassLoader, absolutePath, caller)
+                return
+            } catch (e: Throwable) {
+                lastError = e
+                XposedBridge.log(
+                    "${XposedConstants.TAG}: Runtime.nativeLoad failed sdk=${Build.VERSION.SDK_INT}: ${e.message}",
+                )
+            }
+        }
         if (Build.VERSION.SDK_INT >= 34) {
             try {
-                loadViaVmRuntime(hostClassLoader, absolutePath, preferredCaller)
+                loadViaVmRuntime(hostClassLoader, absolutePath, caller)
                 return
             } catch (e: Throwable) {
                 lastError = e
@@ -171,16 +214,38 @@ object NativeLibLoader {
         )
     }
 
+    private fun loadViaRuntimeNativeLoad(
+        hostClassLoader: ClassLoader,
+        absolutePath: String,
+        caller: Class<*>,
+    ) {
+        val method = Runtime::class.java.getDeclaredMethod(
+            "nativeLoad",
+            String::class.java,
+            ClassLoader::class.java,
+            Class::class.java,
+        )
+        method.isAccessible = true
+        val err = method.invoke(null, absolutePath, hostClassLoader, caller) as? String
+        if (!err.isNullOrBlank()) {
+            throw UnsatisfiedLinkError(err)
+        }
+        XposedBridge.log(
+            "${XposedConstants.TAG}: native load host-ns via Runtime.nativeLoad " +
+                "caller=${caller.name} path=$absolutePath",
+        )
+    }
+
     private fun loadViaVmRuntime(
         hostClassLoader: ClassLoader,
         absolutePath: String,
-        preferredCaller: Class<*>?,
+        caller: Class<*>,
     ) {
         val vmRuntimeClass = Class.forName("dalvik.system.VMRuntime", false, null)
         val vmRuntime = vmRuntimeClass.getDeclaredMethod("getRuntime").invoke(null)
         val callers = buildList {
-            preferredCaller?.let { add(it) }
-            addAll(hostCallerClasses(hostClassLoader))
+            add(caller)
+            addAll(hostCallerClasses(hostClassLoader).filter { it != caller })
         }
         var lastError: Throwable? = null
         val loaderType = ClassLoader::class.java
@@ -285,7 +350,7 @@ object NativeLibLoader {
             }
         }
         if (callers.isEmpty()) {
-            callers += NativeLibLoader::class.java
+            callers += Class.forName("android.app.ActivityThread", false, null)
         }
         return callers
     }

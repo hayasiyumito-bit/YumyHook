@@ -105,8 +105,8 @@ object HostShadowhookLoadGuard {
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
                             if (param.throwable != null) return
-                            val loader = param.args.getOrNull(0) as? ClassLoader ?: return
-                            if (loader !== cl) return
+                            val caller = param.args.getOrNull(0) as? Class<*> ?: return
+                            if (caller.classLoader !== cl) return
                             if (NativeBridge.isHooksInstalled()) {
                                 NativeStealthBridge.install(boundPkg, boundDataDir, cl)
                                 return

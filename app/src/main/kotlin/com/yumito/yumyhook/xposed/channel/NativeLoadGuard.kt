@@ -11,7 +11,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 /**
  * 仅在 [NativeInstallMode.LOAD_PACKAGE] 启用：宿主 .so 加载前抢先装 native。
- * 只 hook `Runtime.loadLibrary0(ClassLoader, String)` 且限定宿主 CL，避免干扰 ART/微信 crash 库。
+ * 只 hook `Runtime.loadLibrary0(Class, String)` 且限定宿主 CL，避免干扰 ART/微信 crash 库。
  */
 object NativeLoadGuard {
 
@@ -43,8 +43,8 @@ object NativeLoadGuard {
                 String::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val loader = param.args.getOrNull(0) as? ClassLoader ?: return
-                        if (loader !== hostClassLoader) return
+                        val caller = param.args.getOrNull(0) as? Class<*> ?: return
+                        if (caller.classLoader !== hostClassLoader) return
                         primeNativeOnce()
                     }
                 },
@@ -57,15 +57,14 @@ object NativeLoadGuard {
     private fun primeNativeOnce() {
         if (NativeBridge.isHooksInstalled()) return
         val lpparam = hostParam ?: return
-        synchronized(this) {
-            if (NativeBridge.isHooksInstalled()) return
-            if (primed) return
-        }
         val pkg = lpparam.packageName
         if (!FourChannelGate.isActive(pkg)) return
         if (!NativeHookPolicy.shouldInstallNative(pkg, FourChannelGate.currentFeatures())) return
+        synchronized(this) {
+            if (NativeBridge.isHooksInstalled()) return
+        }
         val app = TargetContextHolder.appContext
-        val caller = app?.let { it.javaClass }
+        val caller = app?.javaClass
         val ok = NativeBridge.installEarly(lpparam)
             || (caller != null && NativeBridge.retryInstallWithCaller(lpparam, caller))
         if (ok) {

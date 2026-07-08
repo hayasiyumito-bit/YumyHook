@@ -122,12 +122,12 @@ object NativeBridge {
         }
         if (!hooksInstalled) return
         try {
-            nativeSetSpoofActive(true)
+            NativeJniHost.nativeSetSpoofActive(true)
             val props = SystemPropertyMapper.allChannelProperties(
                 values,
                 HookFeatureConfig.current().hideRoot,
             ).mapValues { (_, v) -> if (v.length > MAX_NATIVE_PROP_LEN) "" else v }
-            nativeUpdateProperties(props.keys.toTypedArray(), props.values.toTypedArray())
+            NativeJniHost.nativeUpdateProperties(props.keys.toTypedArray(), props.values.toTypedArray())
             log("props synced count=${props.size} pkg=$pkg")
         } catch (e: Throwable) {
             log("sync failed: ${e.message}")
@@ -137,8 +137,8 @@ object NativeBridge {
     private fun deactivateNative(packageName: String) {
         if (!hooksInstalled) return
         try {
-            nativeSetSpoofActive(false)
-            nativeUpdateProperties(emptyArray(), emptyArray())
+            NativeJniHost.nativeSetSpoofActive(false)
+            NativeJniHost.nativeUpdateProperties(emptyArray(), emptyArray())
             log("spoof off pkg=$packageName")
         } catch (_: Throwable) {
         }
@@ -191,13 +191,13 @@ object NativeBridge {
             return
         }
         try {
-            val ok = nativeInstallPropertyHook(libcOnly, dataDir)
+            val ok = NativeJniHost.nativeInstallPropertyHook(libcOnly, dataDir)
             hooksInstalled = ok
-            val probe = if (ok) nativeProbeProperty("ro.product.model") else "n/a"
-            val libcProbe = if (ok) nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
+            val probe = if (ok) NativeJniHost.nativeProbeProperty("ro.product.model") else "n/a"
+            val libcProbe = if (ok) NativeJniHost.nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
             log(
                 "rev=${XposedConstants.HOOK_REV} property hook $stage=$ok pkg=$packageName " +
-                    "probe_model=$probe libcutils_model=$libcProbe stats=${nativeHookStats()}",
+                    "probe_model=$probe libcutils_model=$libcProbe stats=${NativeJniHost.nativeHookStats()}",
             )
             if (ok) {
                 NativeStealthBridge.retryAfterNativeEngine(packageName, dataDir, classLoader)
@@ -214,33 +214,12 @@ object NativeBridge {
             return
         }
         try {
-            val ok = nativeRetryDeferredHooks()
-            val probe = nativeProbeProperty("ro.product.model")
-            val libcProbe = nativeProbeLibcutilsProperty("ro.product.model")
+            val ok = NativeJniHost.nativeRetryDeferredHooks()
+            val probe = NativeJniHost.nativeProbeProperty("ro.product.model")
+            val libcProbe = NativeJniHost.nativeProbeLibcutilsProperty("ro.product.model")
             log("deferred retry=$ok pkg=$packageName probe_model=$probe libcutils_model=$libcProbe")
         } catch (e: Throwable) {
             log("nativeRetryDeferredHooks failed: ${e.message}")
         }
     }
-
-    @JvmStatic
-    private external fun nativeInstallPropertyHook(libcOnly: Boolean, cacheDir: String?): Boolean
-
-    @JvmStatic
-    private external fun nativeRetryDeferredHooks(): Boolean
-
-    @JvmStatic
-    private external fun nativeSetSpoofActive(active: Boolean)
-
-    @JvmStatic
-    private external fun nativeProbeProperty(name: String): String
-
-    @JvmStatic
-    private external fun nativeProbeLibcutilsProperty(name: String): String
-
-    @JvmStatic
-    private external fun nativeHookStats(): String
-
-    @JvmStatic
-    private external fun nativeUpdateProperties(keys: Array<String>, values: Array<String>)
 }
