@@ -66,22 +66,26 @@ object NativeStealthBridge {
         classLoader: ClassLoader?,
     ): Boolean {
         if (libLoaded) return true
+        if (NativeLibLoader.isLoaded()) {
+            libLoaded = true
+            return true
+        }
         val apk = ModulePathHolder.moduleApkPath
         if (apk.isBlank() || dataDir.isNullOrBlank()) {
             XposedBridge.log("${XposedConstants.TAG}: native stealth skip empty path")
             return false
         }
-        val hostShadowhook = HostShadowhookDetector.isHostPresent()
         libLoaded = NativeLibLoader.ensureLoaded(
             apk,
             dataDir,
             packageName,
             classLoader,
-            reuseHostShadowhook = hostShadowhook,
+            reuseHostShadowhook = HostShadowhookDetector.isHostPresent(),
         )
         if (!libLoaded) {
             XposedBridge.log(
-                "${XposedConstants.TAG}: native stealth lib defer pkg=$packageName host=$hostShadowhook",
+                "${XposedConstants.TAG}: native stealth lib defer pkg=$packageName " +
+                    "host=${HostShadowhookDetector.isHostPresent()}",
             )
         }
         return libLoaded

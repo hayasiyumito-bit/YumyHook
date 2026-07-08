@@ -721,6 +721,7 @@ static std::string filter_proc_status_content(const std::string &raw) {
 enum class ProcPathKind { NONE, MAPS, STATUS, MOUNTINFO, MOUNTS, MEM, NET_UNIX };
 
 static char *(*orig___fgets_chk)(char *, int, size_t, FILE *) = nullptr;
+static char *(*orig_fgets)(char *, int, FILE *) = nullptr;
 static FILE *(*orig_fopen)(const char *, const char *) = nullptr;
 static int (*orig_open)(const char *, int, ...) = nullptr;
 static int (*orig_openat)(int, const char *, int, ...) = nullptr;
@@ -778,7 +779,18 @@ static std::string read_file_to_string(const char *path) {
     }
     std::ostringstream ss;
     char buf[4096];
-    while (fgets(buf, sizeof(buf), fp) != nullptr) {
+    while (true) {
+        char *line = nullptr;
+        if (orig___fgets_chk != nullptr) {
+            line = orig___fgets_chk(buf, sizeof(buf), sizeof(buf), fp);
+        } else if (orig_fgets != nullptr) {
+            line = orig_fgets(buf, sizeof(buf), fp);
+        } else {
+            break;
+        }
+        if (line == nullptr) {
+            break;
+        }
         ss << buf;
     }
     fclose(fp);
@@ -1009,7 +1021,6 @@ static int hooked_lstat(const char *pathname, struct stat *buf) {
 
 static ssize_t (*orig_readlinkat)(int, const char *, char *, size_t) = nullptr;
 static ssize_t (*orig_readlink)(const char *, char *, size_t) = nullptr;
-static char *(*orig_fgets)(char *, int, FILE *) = nullptr;
 static ssize_t (*orig_read)(int, void *, size_t) = nullptr;
 static int (*orig___faccessat)(int, const char *, int, int) = nullptr;
 static int (*orig___openat)(int, const char *, int, int) = nullptr;
@@ -1060,8 +1071,11 @@ static char *hooked_fgets(char *buf, int size, FILE *stream) {
     if (buf == nullptr || size <= 0 || stream == nullptr || orig_fgets == nullptr) {
         return orig_fgets(buf, size, stream);
     }
+    if (proc_io_bypass()) {
+        return orig_fgets(buf, size, stream);
+    }
     const int fd = fileno(stream);
-    const bool filter_proc = !proc_io_bypass() && fd_is_proc_sensitive(fd);
+    const bool filter_proc = fd_is_proc_sensitive(fd);
     while (true) {
         char *line = orig_fgets(buf, size, stream);
         if (line == nullptr || !filter_proc) {
@@ -1080,8 +1094,11 @@ static char *hooked___fgets_chk(char *buf, int size, size_t buf_len, FILE *strea
     if (buf == nullptr || size <= 0 || stream == nullptr || orig___fgets_chk == nullptr) {
         return orig___fgets_chk != nullptr ? orig___fgets_chk(buf, size, buf_len, stream) : nullptr;
     }
+    if (proc_io_bypass()) {
+        return orig___fgets_chk(buf, size, buf_len, stream);
+    }
     const int fd = fileno(stream);
-    const bool filter_proc = !proc_io_bypass() && fd_is_proc_sensitive(fd);
+    const bool filter_proc = fd_is_proc_sensitive(fd);
     while (true) {
         char *line = orig___fgets_chk(buf, size, buf_len, stream);
         if (line == nullptr || !filter_proc) {

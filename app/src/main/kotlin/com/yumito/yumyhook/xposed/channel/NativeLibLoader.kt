@@ -23,6 +23,8 @@ object NativeLibLoader {
     @Volatile
     private var loaded = false
 
+    fun isLoaded(): Boolean = loaded
+
     fun ensureLoaded(
         moduleApkPath: String,
         hostContext: Context,
@@ -47,6 +49,7 @@ object NativeLibLoader {
     ): Boolean {
         if (loaded) return true
         if (moduleApkPath.isBlank() || appDataDir.isBlank()) return false
+        HostShadowhookDetector.ensureProbed()
         val pkg = packageName.orEmpty()
         val hostShadowhook = HostShadowhookDetector.isHostPresent()
         if (ShadowhookKnownApps.isKnown(pkg) && !hostShadowhook && !reuseHostShadowhook) {

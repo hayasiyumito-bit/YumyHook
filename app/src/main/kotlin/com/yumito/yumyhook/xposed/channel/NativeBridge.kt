@@ -195,6 +195,9 @@ object NativeBridge {
             hooksInstalled = ok
             val probe = if (ok) NativeJniHost.nativeProbeProperty("ro.product.model") else "n/a"
             val libcProbe = if (ok) NativeJniHost.nativeProbeLibcutilsProperty("ro.product.model") else "n/a"
+            if (ok) {
+                HostShadowhookDetector.markProcStealthActive()
+            }
             log(
                 "rev=${XposedConstants.HOOK_REV} property hook $stage=$ok pkg=$packageName " +
                     "probe_model=$probe libcutils_model=$libcProbe stats=${NativeJniHost.nativeHookStats()}",
