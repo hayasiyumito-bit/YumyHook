@@ -8,17 +8,17 @@ import java.util.Locale
 object ShellOutputFilter {
 
     private val DF_ROOT_LINE = Regex(
-        """magisk|zygisk|kernelsu|/data/adb/(?:magisk|ksu|ap)""",
+        """magisk|zygisk|kernelsu|ksu|ksud|apatch|ap|apd|/data/adb/|/sbin/|su\b""",
         RegexOption.IGNORE_CASE,
     )
 
     private val PS_ROOT_LINE = Regex(
-        """\b(magiskd|zygisk|ksud|apd)\b""",
+        """\b(magiskd|zygisk|ksud?|apd?|ap|magisk|su|ksu)\b""",
         RegexOption.IGNORE_CASE,
     )
 
     private val GETPROP_ROOT_LINE = Regex(
-        """magisk|zygisk|kernelsu|ksu|ksud|apatch|xposed|lsposed|lspatch|riru|supersu|frida""",
+        """magisk|zygisk|kernelsu|ksu|ksud|apatch|ap|apd|xposed|lsposed|lspatch|riru|supersu|frida""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -56,7 +56,7 @@ object ShellOutputFilter {
             .joinToString("\n")
     }
 
-    fun processWithStdout(text: String): Process {
+    fun processWithStdout(text: String, exitCode: Int = 0): Process {
         val bytes = text.toByteArray(Charsets.UTF_8)
         return object : Process() {
             private val stream = ByteArrayInputStream(bytes)
@@ -69,9 +69,9 @@ object ShellOutputFilter {
 
             override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
 
-            override fun waitFor(): Int = 0
+            override fun waitFor(): Int = exitCode
 
-            override fun exitValue(): Int = 0
+            override fun exitValue(): Int = exitCode
 
             override fun destroy() {
                 stream.close()

@@ -62,10 +62,15 @@ object ShellProbeStealthHook {
         }
     }
 
-    private fun emptyStdoutProcess(): Process {
-        return HookReentryGuard.runShellProbeBypass {
-            Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", ":"))
+    private fun failingProcess(command: String): Process {
+        val sub = ShellProbeFilter.extractShellSubcommand(command)
+        val msg = when {
+            sub.startsWith("which ") || sub.startsWith("type ") -> ""
+            sub.startsWith("su ") || sub == "su" -> "/system/bin/sh: su: not found"
+            sub.startsWith("ls ") && sub.contains("/su") -> "/system/bin/sh: ls: No such file or directory"
+            else -> "/system/bin/sh: $sub: not found"
         }
+        return ShellOutputFilter.processWithStdout(msg, exitCode = 127)
     }
 
     private fun sanitizedProcess(command: String, argv: List<String>): Process? {
@@ -139,7 +144,7 @@ object ShellProbeStealthHook {
                 }
                 if (FourChannelGate.isActive() && GetpropCommandParser.isGetpropCommand(joined)) return
                 if (!shouldInterceptArgv(argv) && !shouldIntercept(joined)) return
-                param.result = emptyStdoutProcess()
+                param.result = failingProcess(joined)
             } finally {
                 HookReentryGuard.exit()
             }
@@ -159,7 +164,8 @@ object ShellProbeStealthHook {
                     return
                 }
                 if (!shouldInterceptArgv(parts)) return
-                builder.command("/system/bin/sh", "-c", ":")
+                // Intercept and return a dummy process that exits with error
+                param.result = failingProcess(joined)
             } finally {
                 HookReentryGuard.exit()
             }

@@ -95,6 +95,8 @@ object GetpropHook {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
+                // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
+                HookConfig.refreshHookCacheIfStale()
                 if (!FourChannelGate.isActive(hostPackage)) return
                 val parsed = parseExecArgs(param.args) ?: return
                 if (!applySpoofedGetprop(parsed.second) { param.result = Runtime.getRuntime().exec(it) }) return
@@ -109,6 +111,8 @@ object GetpropHook {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
+                // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
+                HookConfig.refreshHookCacheIfStale()
                 if (!FourChannelGate.isActive(hostPackage)) return
                 val builder = param.thisObject as ProcessBuilder
                 val parsed = parseCommandParts(builder.command()) ?: return

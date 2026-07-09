@@ -29,6 +29,8 @@ object SpoofRuntime {
     }
 
     fun applyChannelsAtPhase(reason: String, phase: InstallPhase, fourChannelActive: Boolean) {
+        // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
+        HookConfig.refreshHookCacheIfStale()
         if (!HookConfig.isEnabledForHook()) return
         if (!fourChannelActive) return
         if (!BuildApplyPhaseGate.allows(TargetContextHolder.packageName, phase)) return

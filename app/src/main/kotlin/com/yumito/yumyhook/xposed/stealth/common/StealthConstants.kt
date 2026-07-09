@@ -92,12 +92,18 @@ object StealthConstants {
     val HIDDEN_PROBE_PREFIXES: List<String> = listOf(
         "/data/adb/modules/",
         "/data/adb/magisk/",
+        "/data/adb/ap/",
+        "/data/adb/ksu/",
         "/data/misc/lsposed",
         "/data/misc/lspd",
         "/data/user/0/org.lsposed.manager",
         "/data/user_de/0/org.lsposed.manager",
         "/data/user/0/com.topjohnwu.magisk",
         "/data/user_de/0/com.topjohnwu.magisk",
+        "/data/user/0/me.weishu.kernelsu",
+        "/data/user_de/0/me.weishu.kernelsu",
+        "/data/user/0/me.bmax.apatch",
+        "/data/user_de/0/me.bmax.apatch",
     )
 
     val HIDDEN_ROOT_PREFIXES: List<String> = listOf(
@@ -106,6 +112,16 @@ object StealthConstants {
         "/cache/magisk",
         "/data/adb/",
         "/debug_ramdisk/",
+        "/sbin/su",
+        "/system/bin/su",
+        "/system/xbin/su",
+        "/system_ext/bin/su",
+        "/vendor/bin/su",
+        "/product/bin/su",
+        "/data/local/su",
+        "/data/local/bin/su",
+        "/data/local/xbin/su",
+        "/data/local/tmp/su",
     )
 
     /** CheckEmu HOOK_FRAMEWORK_FILES + SU_PATHS + Magisk — File.exists() 探测。 */
@@ -142,9 +158,13 @@ object StealthConstants {
         "/dev/.magisk",
         "/cache/magisk",
         "/data/adb/ap",
+        "/data/adb/apd",
         "/data/adb/ksu",
+        "/data/adb/ksud",
         "/data/adb/modules/zygisk_lsposed",
         "/data/adb/modules/riru_lsposed",
+        "/data/adb/modules/ksu",
+        "/data/adb/modules/ap",
         "/data/misc/riru",
         "/system/framework/XposedBridge.jar",
         "/system/bin/app_process32_xposed",
@@ -157,6 +177,17 @@ object StealthConstants {
         "/system/etc/.installed_su_daemon",
         "/system/etc/.has_su_daemon",
         "/system/usr/we-need-root/su-backup",
+        "/data/adb/ap/ksu",
+        "/data/adb/ap/ksud",
+        "/data/adb/ap/su",
+        "/data/adb/ap/magisk",
+        "/data/adb/ksu/su",
+        "/data/adb/ksu/magisk",
+        "/data/adb/modules/busybox",
+        "/data/adb/modules/su",
+        "/data/adb/modules/magisk",
+        "/data/adb/modules/kernelsu",
+        "/data/adb/modules/apatch",
     )
 
     const val SETTINGS_ADB_ENABLED = "adb_enabled"

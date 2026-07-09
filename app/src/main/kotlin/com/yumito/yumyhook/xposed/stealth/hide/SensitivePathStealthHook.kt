@@ -29,8 +29,29 @@ object SensitivePathStealthHook {
             hookConstructor("java.io.FileOutputStream", String::class.java)
             hookConstructor("java.io.FileReader", String::class.java)
             hookConstructor("java.io.FileReader", File::class.java)
+            hookNioFiles()
             installed = true
         }
+    }
+
+    private fun hookNioFiles() {
+        try {
+            val pathClass = XposedHelpers.findClass("java.nio.file.Path", null)
+            val nioHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (HookReentryGuard.isFileBypass()) return
+                    val path = try {
+                        XposedHelpers.callMethod(param.args[0], "toString") as? String
+                    } catch (_: Throwable) { null } ?: return
+                    if (SensitivePathFilter.isHidden(path) || ProcFsPaths.isDenied(path)) {
+                        param.throwable = FileNotFoundException(path)
+                    }
+                }
+            }
+            XposedHelpers.findAndHookMethod("java.nio.file.Files", null, "exists", pathClass, "[Ljava.nio.file.LinkOption;", nioHook)
+            XposedHelpers.findAndHookMethod("java.nio.file.Files", null, "isRegularFile", pathClass, "[Ljava.nio.file.LinkOption;", nioHook)
+            XposedHelpers.findAndHookMethod("java.nio.file.Files", null, "readAttributes", pathClass, Class::class.java, "[Ljava.nio.file.LinkOption;", nioHook)
+        } catch (_: Throwable) {}
     }
 
     private fun hookFileStatMethods() {

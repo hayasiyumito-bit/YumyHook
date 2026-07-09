@@ -32,7 +32,17 @@ object SensitivePathFilter {
             lower.contains("/ksu") ||
             lower.endsWith("/ksu") ||
             lower.contains("apatch") ||
-            lower.contains("ksud")
+            lower.contains("ksud") ||
+            lower.endsWith("/ap") ||
+            lower.contains("/ap/") ||
+            lower.endsWith("/apd") ||
+            lower.contains("apd") ||
+            lower.contains("/sbin/su") ||
+            lower.contains("/system/bin/su") ||
+            lower.contains("/system/xbin/su") ||
+            lower.contains("/system_ext/bin/su") ||
+            lower.contains("/vendor/bin/su") ||
+            lower.contains("/product/bin/su")
     }
 
     fun normalize(path: String): String {

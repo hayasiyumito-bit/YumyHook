@@ -60,8 +60,9 @@ object SystemPropertiesHook {
                         if (!SystemPropertyMapper.hasMapping(key)) return
                         if (!HookReentryGuard.enter()) return
                         try {
-                            if (!FourChannelGate.isActive(hostPackage)) return
+                            // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
                             val values = HookConfig.refreshHookCacheIfStale()
+                            if (!FourChannelGate.isActive(hostPackage)) return
                             val spoofed = SystemPropertyMapper.resolveChannelValue(
                                 key,
                                 values,
