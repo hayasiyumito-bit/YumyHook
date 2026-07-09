@@ -327,15 +327,11 @@ static long hooked_syscall(long number, ...) {
     for (int i = 0; i < 6; i++) args[i] = va_arg(ap, long);
     va_end(ap);
 
-    if (proc_io_bypass()) {
-        return orig_syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
-    }
-
 #if defined(__aarch64__)
     // faccessat (56) / faccessat2 (439) — block root-sensitive paths
     if (number == __NR_faccessat || number == 439) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
+        if (!proc_io_bypass() && is_root_sensitive_path(pathname)) {
             SLOGI("syscall faccessat blocked: %s", pathname);
             errno = ENOENT;
             return -1;
@@ -345,7 +341,7 @@ static long hooked_syscall(long number, ...) {
     // newfstatat (79) — block root-sensitive paths
     if (number == __NR_newfstatat) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
+        if (!proc_io_bypass() && is_root_sensitive_path(pathname)) {
             errno = ENOENT;
             return -1;
         }
@@ -354,29 +350,30 @@ static long hooked_syscall(long number, ...) {
     // openat (56 on arm64) — block root-sensitive paths + filter proc files
     if (number == __NR_openat) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
-            SLOGI("syscall openat blocked: %s", pathname);
-            errno = ENOENT;
-            return -1;
-        }
-        ProcPathKind kind = classify_proc_path(pathname);
-        if (kind == ProcPathKind::MEM) {
-            errno = ENOENT;
-            return -1;
-        }
-        if (kind != ProcPathKind::NONE && !g_proc_cache_dir.empty()) {
-            std::string red = write_filtered_proc_temp(kind);
-            if (!red.empty()) {
-                long fd = orig_syscall(number, args[0], (long)red.c_str(), args[2], args[3]);
-                return fd;
+        if (!proc_io_bypass()) {
+            if (is_root_sensitive_path(pathname)) {
+                SLOGI("syscall openat blocked: %s", pathname);
+                errno = ENOENT;
+                return -1;
             }
-            errno = ENOENT;
-            return -1;
+            ProcPathKind kind = classify_proc_path(pathname);
+            if (kind == ProcPathKind::MEM) {
+                errno = ENOENT;
+                return -1;
+            }
+            if (kind != ProcPathKind::NONE && !g_proc_cache_dir.empty()) {
+                std::string red = write_filtered_proc_temp(kind);
+                if (!red.empty()) {
+                    return syscall(number, args[0], (long)red.c_str(), args[2], args[3]);
+                }
+                errno = ENOENT;
+                return -1;
+            }
         }
     }
 #endif
 
-    return orig_syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
+    return syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
 }
 
 static long hooked___syscall(long number, ...) {
@@ -386,14 +383,10 @@ static long hooked___syscall(long number, ...) {
     for (int i = 0; i < 6; i++) args[i] = va_arg(ap, long);
     va_end(ap);
 
-    if (proc_io_bypass()) {
-        return orig___syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
-    }
-
 #if defined(__aarch64__)
     if (number == __NR_faccessat || number == 439) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
+        if (!proc_io_bypass() && is_root_sensitive_path(pathname)) {
             SLOGI("__syscall faccessat blocked: %s", pathname);
             errno = ENOENT;
             return -1;
@@ -401,36 +394,37 @@ static long hooked___syscall(long number, ...) {
     }
     if (number == __NR_newfstatat) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
+        if (!proc_io_bypass() && is_root_sensitive_path(pathname)) {
             errno = ENOENT;
             return -1;
         }
     }
     if (number == __NR_openat) {
         const char *pathname = (const char *)args[1];
-        if (is_root_sensitive_path(pathname)) {
-            SLOGI("__syscall openat blocked: %s", pathname);
-            errno = ENOENT;
-            return -1;
-        }
-        ProcPathKind kind = classify_proc_path(pathname);
-        if (kind == ProcPathKind::MEM) {
-            errno = ENOENT;
-            return -1;
-        }
-        if (kind != ProcPathKind::NONE && !g_proc_cache_dir.empty()) {
-            std::string red = write_filtered_proc_temp(kind);
-            if (!red.empty()) {
-                long fd = orig___syscall(number, args[0], (long)red.c_str(), args[2], args[3]);
-                return fd;
+        if (!proc_io_bypass()) {
+            if (is_root_sensitive_path(pathname)) {
+                SLOGI("__syscall openat blocked: %s", pathname);
+                errno = ENOENT;
+                return -1;
             }
-            errno = ENOENT;
-            return -1;
+            ProcPathKind kind = classify_proc_path(pathname);
+            if (kind == ProcPathKind::MEM) {
+                errno = ENOENT;
+                return -1;
+            }
+            if (kind != ProcPathKind::NONE && !g_proc_cache_dir.empty()) {
+                std::string red = write_filtered_proc_temp(kind);
+                if (!red.empty()) {
+                    return syscall(number, args[0], (long)red.c_str(), args[2], args[3]);
+                }
+                errno = ENOENT;
+                return -1;
+            }
         }
     }
 #endif
 
-    return orig___syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
+    return syscall(number, args[0], args[1], args[2], args[3], args[4], args[5]);
 }
 
 static int hooked_close(int fd) {
@@ -564,8 +558,6 @@ static bool install_proc_stealth_hooks() {
     hook_libc_sym("__faccessat2", (void *)hooked_faccessat2, &orig, "__faccessat2");
     if (hook_libc_sym("fgets", (void *)hooked_fgets, &orig, "fgets")) { orig_fgets = (char *(*)(char *, int, FILE *))orig; any_success = true; }
     if (hook_libc_sym("read", (void *)hooked_read, &orig, "read")) { orig_read = (ssize_t (*)(int, void *, size_t))orig; any_success = true; }
-    if (hook_libc_sym("syscall", (void *)hooked_syscall, &orig, "syscall")) { orig_syscall = (long (*)(long, ...))orig; any_success = true; }
-    if (hook_libc_sym("__syscall", (void *)hooked___syscall, &orig, "__syscall")) { orig___syscall = (long (*)(long, ...))orig; any_success = true; }
     if (hook_libc_sym("close", (void *)hooked_close, &orig, "close")) { orig_close = (int (*)(int))orig; any_success = true; }
 
     hook_sym("libdl.so", "dlsym", (void *)hooked_dlsym, &orig, "dlsym"); orig_dlsym = (void *(*)(void *, const char *))orig;

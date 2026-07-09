@@ -60,14 +60,21 @@ object ShellOutputFilter {
         val bytes = text.toByteArray(Charsets.UTF_8)
         return object : Process() {
             private val stream = ByteArrayInputStream(bytes)
+            private val nullStream = ByteArrayInputStream(ByteArray(0))
 
             override fun getInputStream(): InputStream = stream
 
-            override fun getOutputStream(): java.io.OutputStream {
-                throw UnsupportedOperationException()
+            override fun getOutputStream(): java.io.OutputStream = object : java.io.OutputStream() {
+                override fun write(b: Int) {
+                    // no-op: discard writes
+                }
+
+                override fun write(b: ByteArray, off: Int, len: Int) {
+                    // no-op: discard writes
+                }
             }
 
-            override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+            override fun getErrorStream(): InputStream = nullStream
 
             override fun waitFor(): Int = exitCode
 
