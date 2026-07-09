@@ -95,11 +95,33 @@ object GetpropHook {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
-                // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
                 HookConfig.refreshHookCacheIfStale()
-                if (!FourChannelGate.isActive(hostPackage)) return
                 val parsed = parseExecArgs(param.args) ?: return
-                if (!applySpoofedGetprop(parsed.second) { param.result = Runtime.getRuntime().exec(it) }) return
+                val key = parsed.second
+                // hideRoot 启用时，所有已映射属性无条件伪装（与 native 通道对齐）
+                if (key != null && HookFeatureConfig.current().hideRoot) {
+                    val rootSpoof = StealthConstants.ROOT_SPOOF_PROPERTIES[key]
+                    if (rootSpoof != null) {
+                        XposedBridge.log("${XposedConstants.TAG}: getprop ROOT_SPOOF $key=$rootSpoof")
+                        param.result = Runtime.getRuntime().exec(shellCommand(rootSpoof))
+                        return
+                    }
+                    if (SystemPropertyMapper.hasMapping(key)) {
+                        val values = HookConfig.refreshHookCacheIfStale()
+                        val spoofed = SystemPropertyMapper.resolveChannelValue(key, values, true)
+                        if (spoofed != null) {
+                            XposedBridge.log("${XposedConstants.TAG}: getprop SPOOF $key=$spoofed")
+                            param.result = Runtime.getRuntime().exec(shellCommand(spoofed))
+                            return
+                        }
+                    }
+                }
+                val gateActive = FourChannelGate.isActive(hostPackage)
+                val hideRoot = HookFeatureConfig.current().hideRoot
+                val hasMapping = key != null && SystemPropertyMapper.hasMapping(key)
+                XposedBridge.log("${XposedConstants.TAG}: getprop SKIP key=$key gate=$gateActive hideRoot=$hideRoot hasMapping=$hasMapping")
+                if (!gateActive) return
+                if (!applySpoofedGetprop(key) { param.result = Runtime.getRuntime().exec(it) }) return
             } finally {
                 HookReentryGuard.exit()
             }
@@ -111,12 +133,28 @@ object GetpropHook {
             if (HookReentryGuard.isGetpropBypass()) return
             if (!HookReentryGuard.enter()) return
             try {
-                // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
                 HookConfig.refreshHookCacheIfStale()
-                if (!FourChannelGate.isActive(hostPackage)) return
                 val builder = param.thisObject as ProcessBuilder
                 val parsed = parseCommandParts(builder.command()) ?: return
-                if (!applySpoofedGetprop(parsed.second) { builder.command(*it) }) return
+                val key = parsed.second
+                // hideRoot 启用时，所有已映射属性无条件伪装（与 native 通道对齐）
+                if (key != null && HookFeatureConfig.current().hideRoot) {
+                    val rootSpoof = StealthConstants.ROOT_SPOOF_PROPERTIES[key]
+                    if (rootSpoof != null) {
+                        builder.command(*shellCommand(rootSpoof))
+                        return
+                    }
+                    if (SystemPropertyMapper.hasMapping(key)) {
+                        val values = HookConfig.refreshHookCacheIfStale()
+                        val spoofed = SystemPropertyMapper.resolveChannelValue(key, values, true)
+                        if (spoofed != null) {
+                            builder.command(*shellCommand(spoofed))
+                            return
+                        }
+                    }
+                }
+                if (!FourChannelGate.isActive(hostPackage)) return
+                if (!applySpoofedGetprop(key) { builder.command(*it) }) return
             } finally {
                 HookReentryGuard.exit()
             }
@@ -124,11 +162,17 @@ object GetpropHook {
     }
 
     private fun parseExecArgs(args: Array<Any?>): Pair<Boolean, String?>? {
-        return when (val first = args.firstOrNull()) {
-            is String -> parseCommandText(first)
-            is Array<*> -> parseCommandParts(first.map { it.toString() })
-            else -> null
-        }
+        val first = args.firstOrNull() ?: return null
+        if (first is String) return parseCommandText(first)
+        // Use reflection to handle String[] across classloaders (Array<*> check fails with boot CL)
+        try {
+            val length = java.lang.reflect.Array.getLength(first)
+            if (length > 0) {
+                val parts = (0 until length).map { java.lang.reflect.Array.get(first, it)?.toString() ?: "" }
+                return parseCommandParts(parts)
+            }
+        } catch (_: Throwable) {}
+        return null
     }
 
     private fun parseCommandParts(parts: List<String>): Pair<Boolean, String?>? {

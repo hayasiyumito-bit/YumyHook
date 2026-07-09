@@ -9,6 +9,7 @@ import com.yumito.yumyhook.xposed.policy.FourChannelGate
 import com.yumito.yumyhook.xposed.config.HookConfig
 import com.yumito.yumyhook.xposed.runtime.HookReentryGuard
 import com.yumito.yumyhook.xposed.config.XposedConstants
+import com.yumito.yumyhook.xposed.stealth.common.StealthConstants
 
 /** Hook android.os.SystemProperties.get* — 仅用内存缓存，防重入。 */
 object SystemPropertiesHook {
@@ -57,12 +58,42 @@ object SystemPropertiesHook {
                 object : XC_MethodHook(PRIORITY_LOWEST) {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val key = param.args[0] as? String ?: return
-                        if (!SystemPropertyMapper.hasMapping(key)) return
                         if (!HookReentryGuard.enter()) return
                         try {
-                            // 尽早刷新配置，避免首次调用时 cachedEnabled=false 导致不伪装
+                            // hideRoot 启用时，所有已映射属性无条件伪装（与 native 通道对齐）
+                            if (HookFeatureConfig.current().hideRoot) {
+                                val rootSpoof = StealthConstants.ROOT_SPOOF_PROPERTIES[key]
+                                if (rootSpoof != null) {
+                                    XposedBridge.log("${XposedConstants.TAG}: sysprop ROOT_SPOOF $key=$rootSpoof")
+                                    param.result = when (name) {
+                                        "getInt" -> rootSpoof.toIntOrNull() ?: param.args[1]
+                                        "getLong" -> rootSpoof.toLongOrNull() ?: param.args[1]
+                                        "getBoolean" -> rootSpoof.equals("true", ignoreCase = true) || rootSpoof == "1"
+                                        else -> rootSpoof
+                                    }
+                                    return
+                                }
+                                if (SystemPropertyMapper.hasMapping(key)) {
+                                    val values = HookConfig.refreshHookCacheIfStale()
+                                    val spoofed = SystemPropertyMapper.resolveChannelValue(key, values, true)
+                                    if (spoofed != null) {
+                                        XposedBridge.log("${XposedConstants.TAG}: sysprop SPOOF $key=$spoofed")
+                                        param.result = when (name) {
+                                            "getInt" -> spoofed.toIntOrNull() ?: param.args[1]
+                                            "getLong" -> spoofed.toLongOrNull() ?: param.args[1]
+                                            "getBoolean" -> spoofed.equals("true", ignoreCase = true) || spoofed == "1"
+                                            else -> spoofed
+                                        }
+                                        return
+                                    }
+                                }
+                            }
+                            if (!SystemPropertyMapper.hasMapping(key)) return
                             val values = HookConfig.refreshHookCacheIfStale()
-                            if (!FourChannelGate.isActive(hostPackage)) return
+                            if (!FourChannelGate.isActive(hostPackage)) {
+                                XposedBridge.log("${XposedConstants.TAG}: sysprop GATE_OFF key=$key pkg=$hostPackage")
+                                return
+                            }
                             val spoofed = SystemPropertyMapper.resolveChannelValue(
                                 key,
                                 values,
